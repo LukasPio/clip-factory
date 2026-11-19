@@ -12,7 +12,7 @@ Editor desktop local para transformar vídeos gravados em cortes verticais. O mo
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup-windows.ps1 -Launch
 ```
 
-O script usa o WinGet para instalar os componentes que faltarem, incluindo Python 3.11 x64, Node.js LTS, Rust/MSVC, Visual Studio Build Tools com C++ e Windows SDK, WebView2, Visual C++ Redistributable e FFmpeg/FFprobe. O comando aceita os termos dos pacotes instalados pelo WinGet. Confirme as solicitações do Windows durante a instalação. Se algum instalador pedir reinicialização, reinicie e execute o mesmo comando. O primeiro preparo pode demorar devido ao download das ferramentas de C++. O parâmetro `-ExecutionPolicy Bypass` vale apenas para o processo iniciado pelo comando.
+O script usa o WinGet para instalar os componentes que faltarem, incluindo Python 3.11 x64, Node.js LTS, Visual Studio Build Tools com C++ e Windows SDK, WebView2, Visual C++ Redistributable e FFmpeg/FFprobe. O Rust/MSVC é preparado pelo instalador oficial do Rustup. O comando aceita os termos dos pacotes instalados pelo WinGet. Confirme as solicitações do Windows durante a instalação. Se algum instalador pedir reinicialização, reinicie e execute o mesmo comando. O primeiro preparo pode demorar devido ao download das ferramentas de C++. O parâmetro `-ExecutionPolicy Bypass` vale apenas para o processo iniciado pelo comando.
 
 Com `-Launch`, o script chama `dev.ps1`, que cria a venv, instala as bibliotecas do motor e da interface e abre o Tauri. Para preparar somente as dependências do Windows, retire `-Launch`. Nos próximos usos, rode:
 
