@@ -3,6 +3,7 @@
 | Sintoma | Ação |
 | --- | --- |
 | WinGet não encontrado | Instale ou atualize o [Instalador de Aplicativo (App Installer)](https://apps.microsoft.com/detail/9NBLGGH4NNS1) e abra um novo PowerShell. |
+| Rustup falhou | Execute a versão atualizada de `scripts/setup-windows.ps1` e confira a mensagem exibida pelo instalador do Rust. O script reaproveita as dependências que já estiverem prontas. |
 | O instalador pediu para reiniciar | Após reiniciar, execute o mesmo comando de `setup-windows.ps1`. |
 | A janela não inicia em desenvolvimento | Execute `scripts/doctor.ps1`. Confira Python 3.11, Build Tools com C++, Rust/MSVC, Node e WebView2. |
 | FFmpeg ou FFprobe ausente | Use os dois executáveis de uma mesma distribuição. No desenvolvimento, inclua a pasta no PATH ou use `CLIP_FACTORY_BIN`. |
