@@ -33,6 +33,50 @@ function Install-WinGetPackage {
     Update-SessionPath
 }
 
+function Add-RustupToSessionPath {
+    if (Get-Command rustup.exe -CommandType Application -ErrorAction SilentlyContinue) { return }
+
+    $cargoHome = if ($env:CARGO_HOME) { $env:CARGO_HOME } else { Join-Path $env:USERPROFILE ".cargo" }
+    $cargoBin = Join-Path $cargoHome "bin"
+    if (Test-Path -LiteralPath (Join-Path $cargoBin "rustup.exe") -PathType Leaf) {
+        $env:Path = "$cargoBin;$env:Path"
+    }
+}
+
+function Install-Rustup {
+    Write-Host "Baixando o Rustup oficial para Windows x64..."
+    $ProgressPreference = "SilentlyContinue"
+    $url = "https://static.rust-lang.org/rustup/dist/$rustTarget/rustup-init.exe"
+    $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) ("clip-factory-rustup-" + [guid]::NewGuid())
+    $null = New-Item -ItemType Directory -Path $tempDir
+
+    try {
+        $installer = Join-Path $tempDir "rustup-init.exe"
+        $checksum = Join-Path $tempDir "rustup-init.exe.sha256"
+        Invoke-WebRequest -UseBasicParsing -Uri "${url}.sha256" -OutFile $checksum
+        Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $installer
+        $expectedHash = ((Get-Content -LiteralPath $checksum -Raw).Trim() -split "\s+")[0]
+        $actualHash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash
+        if ($expectedHash -notmatch "^[0-9a-f]{64}$" -or $expectedHash -ne $actualHash) {
+            throw "O SHA-256 do instalador do Rustup nao confere. Rode o script novamente para baixar outra copia."
+        }
+
+        Write-Host "Instalando Rust stable com MSVC..."
+        & $installer -y --default-host $rustTarget --default-toolchain stable --profile minimal
+        if ($LASTEXITCODE -ne 0) {
+            throw "rustup-init.exe falhou (codigo $LASTEXITCODE). Confira a mensagem do instalador acima."
+        }
+    } finally {
+        Remove-Item -LiteralPath $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Get-ActiveRustToolchain {
+    $ErrorActionPreference = "Continue"
+    $toolchain = & rustup.exe show active-toolchain 2>$null
+    if ($LASTEXITCODE -eq 0) { return $toolchain }
+}
+
 function Test-Python311 {
     if (!(Get-Command py.exe -CommandType Application -ErrorAction SilentlyContinue)) { return $false }
     $ErrorActionPreference = "Continue"
@@ -129,11 +173,21 @@ if ($vcRuntime -ne 1) {
     Install-WinGetPackage "Microsoft.VCRedist.2015+.x64"
 }
 
+Update-SessionPath
+Add-RustupToSessionPath
 if (!(Get-Command rustup.exe -CommandType Application -ErrorAction SilentlyContinue)) {
-    Install-WinGetPackage "Rustlang.Rustup"
+    Install-Rustup
+    Update-SessionPath
+    Add-RustupToSessionPath
 }
 if (!(Get-Command rustup.exe -CommandType Application -ErrorAction SilentlyContinue)) {
     throw "Rustup indisponivel. Abra um novo PowerShell e rode este script novamente."
+}
+
+$activeToolchain = Get-ActiveRustToolchain
+if (!$activeToolchain) {
+    & rustup.exe default "stable-$rustTarget"
+    if ($LASTEXITCODE -ne 0) { throw "Falha ao instalar Rust stable para $rustTarget. Confira a mensagem do rustup acima." }
 }
 & rustup.exe target add $rustTarget
 if ($LASTEXITCODE -ne 0) { throw "Falha ao preparar Rust para $rustTarget. Confira a mensagem do rustup acima." }
