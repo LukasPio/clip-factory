@@ -1,0 +1,49 @@
+name: Testes
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  cpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - name: Ferramentas de mídia
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Motor
+        run: |
+          python -m pip install uv
+          uv sync --project services/engine --locked --extra test
+          services/engine/.venv/bin/python -m pytest services/engine/tests
+      - name: Interface
+        working-directory: apps/desktop
+        run: |
+          npm ci
+          npm run build
+          npm run test
+          npx playwright install --with-deps chromium
+          CLIP_FACTORY_PYTHON="$GITHUB_WORKSPACE/services/engine/.venv/bin/python" npm run test:e2e
+  desktop-windows:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Frontend e compilação do shell
+        working-directory: apps/desktop
+        run: |
+          npm ci
+          npm run build
+          cargo check --locked --manifest-path src-tauri/Cargo.toml

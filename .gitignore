@@ -10,3 +10,5 @@ binaries/
 playwright-report/
 test-results/
 *.spec
+*.egg-info/
+apps/desktop/src-tauri/gen/

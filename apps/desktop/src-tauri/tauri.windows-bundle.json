@@ -1,0 +1,6 @@
+{
+  "bundle": {
+    "externalBin": ["binaries/clip-engine"],
+    "resources": {"binaries/media-tools/": "media-tools/"}
+  }
+}
