@@ -17,7 +17,7 @@ Push-Location apps/desktop
 try {
     if (Test-Path package-lock.json) { npm.cmd ci } else { npm.cmd install }
     if ($LASTEXITCODE -ne 0) { throw "Falha ao instalar dependências da interface." }
-    npm.cmd run tauri -- dev
+    npm.cmd run tauri -- dev --target x86_64-pc-windows-msvc
     if ($LASTEXITCODE -ne 0) { throw "Falha ao iniciar Tauri. Execute scripts/doctor.ps1." }
 } finally {
     Pop-Location
