@@ -4,14 +4,25 @@ Editor desktop local para transformar vídeos gravados em cortes verticais. O mo
 
 ## Desenvolver no Windows x64
 
-Instale Python 3.11 x64 com o launcher `py`, Node.js 22 ou superior, Rust com alvo MSVC, Visual Studio Build Tools com C++ e Windows SDK, e WebView2. Coloque FFmpeg e FFprobe no PATH. Use uma compilação FFmpeg com `libx264` e `libass`.
+1. Baixe e extraia o ZIP do repositório pelo GitHub (**Code → Download ZIP**).
+2. Na pasta extraída que contém `README.md` e `scripts`, abra o Windows PowerShell.
+3. Cole o comando abaixo para preparar o ambiente e abrir o Clip Factory.
 
 ```powershell
-.\scripts\doctor.ps1
-.\scripts\dev.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup-windows.ps1 -Launch
 ```
 
-O launcher cria uma venv, instala as dependências e abre o Tauri. A janela inicia e encerra o motor. Para trabalhar apenas na interface em Linux ou Windows, inicie `python -m app.main` de `services/engine`. Copie temporariamente `url` e `token` da primeira linha do motor para `VITE_ENGINE_URL` e `VITE_ENGINE_TOKEN` no shell antes de executar `npm run dev` de `apps/desktop`. O modo navegador de desenvolvimento aceita caminhos absolutos nos formulários. Use o app desktop para o seletor nativo.
+O script usa o WinGet para instalar os componentes que faltarem, incluindo Python 3.11 x64, Node.js LTS, Rust/MSVC, Visual Studio Build Tools com C++ e Windows SDK, WebView2, Visual C++ Redistributable e FFmpeg/FFprobe. O comando aceita os termos dos pacotes instalados pelo WinGet. Confirme as solicitações do Windows durante a instalação. Se algum instalador pedir reinicialização, reinicie e execute o mesmo comando. O primeiro preparo pode demorar devido ao download das ferramentas de C++. O parâmetro `-ExecutionPolicy Bypass` vale apenas para o processo iniciado pelo comando.
+
+Com `-Launch`, o script chama `dev.ps1`, que cria a venv, instala as bibliotecas do motor e da interface e abre o Tauri. Para preparar somente as dependências do Windows, retire `-Launch`. Nos próximos usos, rode:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\dev.ps1
+```
+
+O modo CPU funciona com esse preparo. O download do modelo de transcrição é solicitado dentro do aplicativo na primeira análise. Para distribuir o aplicativo a usuários finais, veja [Empacotar no Windows](#empacotar-no-windows).
+
+A janela inicia e encerra o motor. Para trabalhar apenas na interface em Linux ou Windows, inicie `python -m app.main` de `services/engine`. Copie temporariamente `url` e `token` da primeira linha do motor para `VITE_ENGINE_URL` e `VITE_ENGINE_TOKEN` no shell antes de executar `npm run dev` de `apps/desktop`. O modo navegador de desenvolvimento aceita caminhos absolutos nos formulários. Use o app desktop para o seletor nativo.
 
 ## Usar
 
