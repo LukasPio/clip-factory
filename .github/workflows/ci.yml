@@ -45,5 +45,6 @@ jobs:
         working-directory: apps/desktop
         run: |
           npm ci
+          npm run test
           npm run build
           cargo check --locked --manifest-path src-tauri/Cargo.toml
