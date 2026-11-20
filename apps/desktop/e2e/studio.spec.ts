@@ -25,7 +25,7 @@ test('importa, edita, gera prévia, reabre e exporta um corte real', async ({ pa
     await page.getByRole('button', { name: 'Criar corte manual' }).click()
     await page.getByLabel('Título', { exact: true }).fill('Corte validado')
     const selected = page.getByRole('checkbox', { name: 'Selecionar Corte manual' })
-    await selected.uncheck()
+    await selected.click()
     await expect(selected).not.toBeChecked()
     await expect(page.getByLabel('Título', { exact: true })).toHaveValue('Corte validado')
     await page.getByLabel('Início no vídeo').fill('0.5')

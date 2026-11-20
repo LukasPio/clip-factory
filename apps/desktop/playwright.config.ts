@@ -10,7 +10,7 @@ export default defineConfig({
     launchOptions: {
       executablePath: process.env.CLIP_FACTORY_CHROMIUM,
       args: ['--no-proxy-server', '--disable-background-networking', '--disable-component-update',
-        '--disable-domain-reliability', '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost'],
+        '--disable-domain-reliability', '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1, EXCLUDE localhost'],
     },
   },
   projects: [
