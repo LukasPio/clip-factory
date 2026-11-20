@@ -247,7 +247,7 @@ function Studio({ api }: { api: Engine }) {
     try {
       const data = await api.request<Clip>(`/clips/${draft.id}`, 'PATCH', {
         start_ms: draft.start_ms, end_ms: draft.end_ms, title: draft.title.trim(), center_x: draft.center_x,
-        caption_style: draft.caption_style,
+        caption_style: draft.caption_style, framing: draft.framing,
         subtitles: subtitles ? { cues: draft.cues, offset_ms: offset } : undefined,
       })
       setClips(current => current.map(item => item.id === data.id ? data : item))

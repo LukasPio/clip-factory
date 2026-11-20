@@ -2,12 +2,14 @@ import json
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from functools import lru_cache
+from pathlib import Path
 from uuid import uuid4
 
 from sqlalchemy import URL, create_engine, event
 from sqlalchemy.pool import NullPool
 
 from .config import DATA, DEFAULTS, Problem
+from .media import discard_cache
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS projects(
@@ -29,6 +31,7 @@ CREATE TABLE IF NOT EXISTS clips(
   start_ms INTEGER NOT NULL, end_ms INTEGER NOT NULL CHECK(end_ms > start_ms), title TEXT NOT NULL,
   score INTEGER, reason TEXT, center_x REAL NOT NULL DEFAULT .5, selected INTEGER NOT NULL DEFAULT 1,
   preview_path TEXT, thumbnail_path TEXT, caption_style TEXT NOT NULL DEFAULT 'white',
+  framing TEXT NOT NULL DEFAULT 'fit' CHECK(framing IN ('fit', 'fill')),
   automatic INTEGER NOT NULL DEFAULT 0, edited INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS cues(
@@ -88,12 +91,21 @@ def initialize():
         driver = connection.connection.driver_connection
         driver.execute("PRAGMA journal_mode = WAL")
         driver.executescript(SCHEMA)
+    stale = []
     with connect(write=True) as db:
+        if not any(column["name"] == "framing" for column in db.execute("PRAGMA table_info(clips)")):
+            db.execute("ALTER TABLE clips ADD COLUMN framing TEXT NOT NULL DEFAULT 'fit' CHECK(framing IN ('fit', 'fill'))")
+            stale = [Path(row["preview_path"]) for row in db.execute(
+                "SELECT preview_path FROM clips WHERE preview_path IS NOT NULL")]
+            db.execute("UPDATE clips SET preview_path=NULL WHERE preview_path IS NOT NULL")
         db.execute(
             """UPDATE jobs SET status='failed', error_code='INTERRUPTED',
                message='Processamento interrompido. Inicie a tarefa novamente.', updated_at=?
                WHERE status IN ('running','queued')""", (now(),)
         )
+    for path in stale:
+        if path.parent.resolve().is_relative_to((DATA / "projects").resolve()):
+            discard_cache(path)
 
 
 def decode(row):

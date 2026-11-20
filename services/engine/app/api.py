@@ -55,6 +55,7 @@ class ClipEdit(BaseModel):
     end_ms: Time | None = None
     title: Title | None = None
     center_x: float | None = Field(None, ge=0, le=1)
+    framing: Literal["fit", "fill"] | None = None
     selected: bool | None = None
     caption_style: Style | None = None
 
@@ -236,11 +237,11 @@ def clip_create(identifier: UUID, data: ClipEdit, request: Request):
         end = data.end_ms if data.end_ms is not None else min(duration, start + 30000)
         timestamps(start, end, duration)
         conn.execute(
-            """INSERT INTO clips(id,project_id,start_ms,end_ms,title,center_x,selected,caption_style,updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?)""",
+            """INSERT INTO clips(id,project_id,start_ms,end_ms,title,center_x,selected,caption_style,framing,updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
             (clip_id, identifier, start, end, data.title or "Corte manual", data.center_x if data.center_x is not None else .5,
              data.selected if data.selected is not None else True,
-             data.caption_style or db.settings(conn)["default_caption_style"], db.now()),
+             data.caption_style or db.settings(conn)["default_caption_style"], data.framing or "fit", db.now()),
         )
         db.write_cues(conn, clip_id, pipeline.project_cues(db.project_segments(conn, identifier), start, end))
         return decorate_clip(conn, db.get(conn, "clips", clip_id))
@@ -276,7 +277,7 @@ def apply_edit(conn, clip, fields, subtitles):
         cues = None
     if cues is not None:
         db.write_cues(conn, clip["id"], cues)
-    if changed_times or subtitles is not None or any(fields.get(k, clip[k]) != clip[k] for k in ("center_x", "caption_style")):
+    if changed_times or subtitles is not None or any(fields.get(k, clip[k]) != clip[k] for k in ("center_x", "caption_style", "framing")):
         fields["preview_path"] = None
     fields.update(updated_at=db.now(), edited=True)
     assignments = ", ".join(f"{key}=?" for key in fields)

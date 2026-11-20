@@ -140,10 +140,16 @@ def render(task, source, metadata, clip, cues, output, preset, prefer_gpu=False)
     width, height = PRESETS[preset]
     duration = clip["end_ms"] - clip["start_ms"]
     aspect = metadata["display_aspect"]
-    scaled_w = max(width, math.ceil(height * aspect / 2) * 2)
-    scaled_h = max(height, math.ceil(width / aspect / 2) * 2)
-    x = round((scaled_w - width) * clip["center_x"] / 2) * 2
-    filters = f"scale={scaled_w}:{scaled_h},setsar=1,crop={width}:{height}:{x}:(ih-oh)/2,fps=30"
+    if clip["framing"] == "fill":
+        scaled_w = max(width, math.ceil(height * aspect / 2) * 2)
+        scaled_h = max(height, math.ceil(width / aspect / 2) * 2)
+        x = round((scaled_w - width) * clip["center_x"] / 2) * 2
+        frame = f"crop={width}:{height}:{x}:(ih-oh)/2"
+    else:
+        scaled_w = max(2, min(width, round(height * aspect / 2) * 2))
+        scaled_h = max(2, min(height, round(width / aspect / 2) * 2))
+        frame = f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black"
+    filters = f"scale={scaled_w}:{scaled_h},setsar=1,{frame},fps=30"
     disk(output.parent, max(64_000_000, duration * 1500))
     with tempfile.TemporaryDirectory(dir=output.parent, prefix=".clip-render-") as scratch:
         base = Path(scratch)

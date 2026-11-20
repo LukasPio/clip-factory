@@ -52,6 +52,57 @@ def fixture_video(path, audio=True, seconds=5):
     return path
 
 
+def test_existing_clips_switch_to_full_frame_without_losing_edits(engine_path):
+    engine_path.mkdir()
+    legacy = "\n".join(line for line in db.SCHEMA.splitlines() if "framing TEXT" not in line)
+    with db.engine(engine_path / "clip-factory.sqlite3").connect() as conn:
+        conn.connection.driver_connection.executescript(legacy)
+    project_id, clip_id = db.uid(), db.uid()
+    old_preview = engine_path / "projects" / project_id / f"{clip_id}-old.mp4"
+    old_preview.parent.mkdir(parents=True)
+    old_preview.touch()
+    with db.connect(write=True) as conn:
+        conn.execute("INSERT INTO projects(id,title,source_kind,source_uri,created_at,updated_at) VALUES (?,?,?,?,?,?)",
+                     (project_id, "Projeto", "local", "original.mp4", db.now(), db.now()))
+        conn.execute("""INSERT INTO clips(id,project_id,start_ms,end_ms,title,center_x,preview_path,edited,updated_at)
+                        VALUES (?,?,?,?,?,?,?,?,?)""",
+                     (clip_id, project_id, 1000, 4000, "Corte editado", .7, str(old_preview), 1, db.now()))
+    db.initialize()
+    with db.connect() as conn:
+        clip = db.get(conn, "clips", clip_id)
+    assert (clip["framing"], clip["preview_path"], clip["title"], clip["center_x"], clip["edited"]) == (
+        "fit", None, "Corte editado", .7, 1)
+    assert not old_preview.exists()
+
+
+def test_preview_preserves_both_edges_and_invalidates_cache_when_framing_changes(client, tmp_path):
+    source = fixture_video(tmp_path / "framing-base.mp4", seconds=1)
+    marked = tmp_path / "framing.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-i", str(source), "-vf",
+                    "drawbox=x=0:y=0:w=60:h=ih:c=red:t=fill,drawbox=x=260:y=0:w=60:h=ih:c=blue:t=fill",
+                    str(marked)], check=True)
+    project = client.post("/projects", json={"source_kind": "local", "source_uri": str(marked)}).json()
+    assert wait_job(client, project["job_id"])["status"] == "done"
+    clip = client.post(f"/projects/{project['id']}/clips", json={}).json()
+    assert clip["framing"] == "fit"
+    target = f"/clips/{clip['id']}"
+
+    def frame():
+        job = wait_job(client, client.post(f"{target}/preview").json()["job_id"])
+        assert job["status"] == "done", job
+        return subprocess.check_output(["ffmpeg", "-v", "error", "-i", job["result"]["path"],
+                                        "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"])
+
+    fit = frame()
+    assert len(fit) == 540 * 960 * 3
+    left, right = ((480 * 540 + x) * 3 for x in (30, 510))
+    assert fit[left] > 200 and fit[right + 2] > 200
+    updated = client.patch(target, json={"framing": "fill"}).json()
+    assert updated["preview_path"] is None
+    fill = frame()
+    assert max(fill[left:left + 3] + fill[right:right + 3]) < 30
+
+
 def test_auth_and_origin(engine_path):
     with TestClient(main.create_app("session", "testserver")) as unauthenticated:
         assert unauthenticated.get("/health").status_code == 200

@@ -88,10 +88,15 @@ export default function Editor({ clip, project, api, disabled, save, preview, ex
           <input type="range" aria-label="Arrastar fim" min="0" max={duration} step="100" value={draft.end_ms}
             onChange={event => edit({ end_ms: Math.max(draft.start_ms + 1, +event.target.value) })} />
         </div>
-        <label>Enquadramento horizontal · {Math.round(draft.center_x * 100)}%
+        <label>Enquadramento<select value={draft.framing} onChange={event =>
+          edit({ framing: event.target.value === 'fill' ? 'fill' : 'fit' })}>
+          <option value="fit">Mostrar vídeo inteiro</option>
+          <option value="fill">Preencher tela com recorte</option>
+        </select></label>
+        {draft.framing === 'fill' && <label>Posição horizontal · {Math.round(draft.center_x * 100)}%
           <input aria-label="Enquadramento horizontal" type="range" min="0" max="1" step="0.01" value={draft.center_x}
             onChange={event => edit({ center_x: +event.target.value })} />
-        </label>
+        </label>}
         <div className="inline-fields">
           <label>Estilo das legendas<select value={draft.caption_style} onChange={event => edit({ caption_style: event.target.value as Clip['caption_style'] })}>
             <option value="white">Branco com contorno</option><option value="yellow">Amarelo com contorno</option>
