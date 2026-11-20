@@ -97,9 +97,13 @@ export default function Editor({ clip, project, api, disabled, save, preview, ex
           <input aria-label="Enquadramento horizontal" type="range" min="0" max="1" step="0.01" value={draft.center_x}
             onChange={event => edit({ center_x: +event.target.value })} />
         </label>}
+        <label>Efeitos do corte<select value={draft.effects} onChange={event => edit({ effects: event.target.value as Clip['effects'] })}>
+          <option value="auto">Automático</option><option value="motion">Movimento suave</option>
+          <option value="fade">Fade na entrada e na saída</option><option value="none">Sem efeitos</option>
+        </select></label>
         <div className="inline-fields">
           <label>Estilo das legendas<select value={draft.caption_style} onChange={event => edit({ caption_style: event.target.value as Clip['caption_style'] })}>
-            <option value="white">Branco com contorno</option><option value="yellow">Amarelo com contorno</option>
+            <option value="white">Branco · destaque amarelo</option><option value="yellow">Amarelo · destaque ciano</option>
           </select></label>
           <label>Deslocamento global (ms)<input type="number" min="-60000" max="60000" step="10" value={offset} onChange={event => {
             setOffset(Math.round(Number(event.target.value))); setChanged(true); setSaved(false)

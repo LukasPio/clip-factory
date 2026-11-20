@@ -54,7 +54,8 @@ def fixture_video(path, audio=True, seconds=5):
 
 def test_existing_clips_switch_to_full_frame_without_losing_edits(engine_path):
     engine_path.mkdir()
-    legacy = "\n".join(line for line in db.SCHEMA.splitlines() if "framing TEXT" not in line)
+    legacy = "\n".join(line for line in db.SCHEMA.splitlines() if not any(
+        feature in line for feature in ("framing TEXT", "effects TEXT")))
     with db.engine(engine_path / "clip-factory.sqlite3").connect() as conn:
         conn.connection.driver_connection.executescript(legacy)
     project_id, clip_id = db.uid(), db.uid()
@@ -73,10 +74,11 @@ def test_existing_clips_switch_to_full_frame_without_losing_edits(engine_path):
     assert (clip["framing"], clip["preview_path"], clip["title"], clip["center_x"], clip["edited"]) == (
         "fit", None, "Corte editado", .7, 1)
     assert not old_preview.exists()
+    assert clip["effects"] == "auto"
 
 
 def test_preview_preserves_both_edges_and_invalidates_cache_when_framing_changes(client, tmp_path):
-    source = fixture_video(tmp_path / "framing-base.mp4", seconds=1)
+    source = fixture_video(tmp_path / "framing-base.mp4", seconds=2)
     marked = tmp_path / "framing.mp4"
     subprocess.run(["ffmpeg", "-v", "error", "-i", str(source), "-vf",
                     "drawbox=x=0:y=0:w=60:h=ih:c=red:t=fill,drawbox=x=260:y=0:w=60:h=ih:c=blue:t=fill",
@@ -101,6 +103,35 @@ def test_preview_preserves_both_edges_and_invalidates_cache_when_framing_changes
     assert updated["preview_path"] is None
     fill = frame()
     assert max(fill[left:left + 3] + fill[right:right + 3]) < 30
+    assert client.patch(target, json={"framing": "fit", "effects": "motion"}).json()["preview_path"] is None
+    motion = frame()
+    assert motion[left] > 200 and motion[right + 2] > 200
+    assert client.patch(target, json={"effects": "fade"}).json()["preview_path"] is None
+    faded = frame()
+    assert max(faded[left:left + 3] + faded[right:right + 3]) < 30
+
+
+def test_caption_highlight_uses_the_actual_word_timing(tmp_path):
+    class ClipCaptions:
+        def execute(self, *_args):
+            return [
+                {"text": "Olá\nmundo", "start_ms": 400, "end_ms": 1700, "word_ids": '["first", "last"]'},
+                {"text": "Texto manual", "start_ms": 1850, "end_ms": 2050, "word_ids": "[]"},
+            ]
+
+    clip = {"id": "clip", "start_ms": 10000}
+    cues = pipeline.render_cues(ClipCaptions(), clip, {
+        "first": {"text": "Olá", "start_ms": 10200, "end_ms": 10500},
+        "last": {"text": "mundo", "start_ms": 11200, "end_ms": 11500},
+    })
+    captions = tmp_path / "captions.ass"
+    pipeline.media.write_ass(captions, cues, "white")
+    events = [line for line in captions.read_text(encoding="utf-8").splitlines() if line.startswith("Dialogue:")]
+    assert len(events) == 4
+    assert "0:00:00.40,0:00:00.70" in events[0] and r"{\1c&H24DCFF&}OLÁ{\r}\NMUNDO" in events[0]
+    assert r"OLÁ\NMUNDO" in events[1] and r"\1c" not in events[1]
+    assert "0:00:01.40,0:00:01.70" in events[2] and r"OLÁ\N{\1c&H24DCFF&}MUNDO{\r}" in events[2]
+    assert events[3].endswith("TEXTO MANUAL") and r"\1c" not in events[3]
 
 
 def test_auth_and_origin(engine_path):

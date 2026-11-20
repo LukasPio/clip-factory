@@ -236,13 +236,35 @@ def analyze(task, project, opts, settings):
     return {**analysis, "count": len(selected), "message": summary}
 
 
+def render_cues(conn, clip, words=None):
+    cues = db.clip_cues(conn, clip["id"])
+    if not any(cue["word_ids"] for cue in cues):
+        return cues
+    if words is None:
+        words = project_words(conn, clip["project_id"])
+    start = clip["start_ms"]
+    for cue in cues:
+        aligned = [words.get(identifier) for identifier in cue["word_ids"]]
+        if not aligned or any(word is None for word in aligned):
+            continue
+        if cue["text"].upper().split() != [word["text"].upper() for word in aligned]:
+            continue
+        offset = cue["start_ms"] - max(0, aligned[0]["start_ms"] - start)
+        cue["word_times"] = [(word["start_ms"] - start + offset, word["end_ms"] - start + offset) for word in aligned]
+    return cues
+
+
+def project_words(conn, project_id):
+    return {word["id"]: word for segment in db.project_segments(conn, project_id) for word in segment["words"]}
+
+
 def preview(task, project, clip):
     source = source_for(project)
     folder = PROJECTS / project["id"]
     path = folder / f"{clip['id']}-{task.id}.mp4"
     task.phase("preview", "Renderizando prévia vertical", 0)
     with db.connect() as conn:
-        cues = db.clip_cues(conn, clip["id"])
+        cues = render_cues(conn, clip)
     result = media.render(task, source, project["metadata"], clip, cues, path, "preview")
     with db.connect(write=True) as conn:
         conn.execute("UPDATE clips SET preview_path=? WHERE id=?", (str(path), clip["id"]))
@@ -263,11 +285,13 @@ def export(task, project, clips, folder, preset, name, gpu):
         if (folder / filename).exists():
             raise Problem("OUTPUT_EXISTS", f"O arquivo {filename} já existe. Escolha outro nome ou pasta.")
         outputs.append(folder / filename)
+    with db.connect() as conn:
+        words = project_words(conn, project["id"])
     files = []
     for index, (clip, output) in enumerate(zip(clips, outputs), 1):
         task.phase("export", f"Exportando {index} de {len(clips)}", 0)
         with db.connect() as conn:
-            cues = db.clip_cues(conn, clip["id"])
+            cues = render_cues(conn, clip, words)
         files.append(media.render(task, source, project["metadata"], clip, cues, output, preset, gpu))
         task.update(result=json.dumps({"files": files}))
     fallback = gpu and any(file["encoder"] == "libx264" for file in files)

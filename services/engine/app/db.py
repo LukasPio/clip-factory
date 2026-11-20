@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS clips(
   score INTEGER, reason TEXT, center_x REAL NOT NULL DEFAULT .5, selected INTEGER NOT NULL DEFAULT 1,
   preview_path TEXT, thumbnail_path TEXT, caption_style TEXT NOT NULL DEFAULT 'white',
   framing TEXT NOT NULL DEFAULT 'fit' CHECK(framing IN ('fit', 'fill')),
+  effects TEXT NOT NULL DEFAULT 'auto' CHECK(effects IN ('auto', 'motion', 'fade', 'none')),
   automatic INTEGER NOT NULL DEFAULT 0, edited INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS cues(
@@ -93,8 +94,12 @@ def initialize():
         driver.executescript(SCHEMA)
     stale = []
     with connect(write=True) as db:
-        if not any(column["name"] == "framing" for column in db.execute("PRAGMA table_info(clips)")):
+        columns = {column["name"] for column in db.execute("PRAGMA table_info(clips)")}
+        if "framing" not in columns:
             db.execute("ALTER TABLE clips ADD COLUMN framing TEXT NOT NULL DEFAULT 'fit' CHECK(framing IN ('fit', 'fill'))")
+        if "effects" not in columns:
+            db.execute("ALTER TABLE clips ADD COLUMN effects TEXT NOT NULL DEFAULT 'auto' CHECK(effects IN ('auto', 'motion', 'fade', 'none'))")
+        if not {"framing", "effects"} <= columns:
             stale = [Path(row["preview_path"]) for row in db.execute(
                 "SELECT preview_path FROM clips WHERE preview_path IS NOT NULL")]
             db.execute("UPDATE clips SET preview_path=NULL WHERE preview_path IS NOT NULL")

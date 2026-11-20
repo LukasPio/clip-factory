@@ -119,7 +119,7 @@ function Configuration({ api, settings, setSettings, disabled, run }: {
           <option value="auto">Automático</option><option value="pt">Português</option></select></label>
         <label className="checkbox"><input type="checkbox" checked={draft.use_llm} onChange={e => update({ use_llm: e.target.checked })} /> Usar Ollama com Qwen 2.5 3B quando disponível</label>
         <label>Estilo padrão<select value={draft.default_caption_style} onChange={e => update({ default_caption_style: e.target.value as Settings['default_caption_style'] })}>
-          <option value="white">Branco com contorno</option><option value="yellow">Amarelo com contorno</option></select></label>
+          <option value="white">Branco · destaque amarelo</option><option value="yellow">Amarelo · destaque ciano</option></select></label>
         <button onClick={() => run(async () => {
           const path = await open({ directory: true }); if (typeof path === 'string') update({ default_export_dir: path })
         })}>Pasta de exportação…</button>
@@ -247,7 +247,7 @@ function Studio({ api }: { api: Engine }) {
     try {
       const data = await api.request<Clip>(`/clips/${draft.id}`, 'PATCH', {
         start_ms: draft.start_ms, end_ms: draft.end_ms, title: draft.title.trim(), center_x: draft.center_x,
-        caption_style: draft.caption_style, framing: draft.framing,
+        caption_style: draft.caption_style, framing: draft.framing, effects: draft.effects,
         subtitles: subtitles ? { cues: draft.cues, offset_ms: offset } : undefined,
       })
       setClips(current => current.map(item => item.id === data.id ? data : item))

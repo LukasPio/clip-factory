@@ -2,6 +2,7 @@ import json
 import logging
 import math
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -106,6 +107,7 @@ def ass_time(ms, round_up=False):
 
 def write_ass(path, cues, color):
     primary = "&H0000FFFF" if color == "yellow" else "&H00FFFFFF"
+    highlight = "&HFFFF24&" if color == "yellow" else "&H24DCFF&"
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: 540
@@ -121,10 +123,31 @@ Style: Default,Arial,29,{primary},&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     lines = []
+
+    def dialogue(start, end, text):
+        left, right = ass_time(start, True), ass_time(end, True)
+        if left != right:
+            text = r"\N".join(text.splitlines())
+            lines.append(f"Dialogue: 0,{left},{right},Default,,0,0,0,,{text}")
+
     for cue in cues:
-        text = cue["text"].replace(chr(92), chr(65340)).replace("{", "｛").replace("}", "｝")
-        text = r"\N".join(text.splitlines())
-        lines.append(f"Dialogue: 0,{ass_time(cue['start_ms'])},{ass_time(cue['end_ms'], True)},Default,,0,0,0,,{text}")
+        text = cue["text"].upper().replace(chr(92), chr(65340)).replace("{", "｛").replace("}", "｝")
+        start, end = cue["start_ms"], cue["end_ms"]
+        tokens = list(re.finditer(r"\S+", text))
+        timing = cue.get("word_times", [])
+        cursor = start
+        if len(tokens) == len(timing):
+            for token, (left, right) in zip(tokens, timing):
+                left, right = max(cursor, left), min(end, right)
+                if right <= left:
+                    continue
+                if cursor < left:
+                    dialogue(cursor, left, text)
+                colored = text[:token.start()] + r"{\1c" + highlight + "}" + token[0] + r"{\r}" + text[token.end():]
+                dialogue(left, right, colored)
+                cursor = right
+        if cursor < end:
+            dialogue(cursor, end, text)
     path.write_text(header + "\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -134,6 +157,36 @@ def encoder_available(name):
         return True
     except (Problem, subprocess.SubprocessError, OSError):
         return False
+
+
+def visual_effects(clip, cues, has_audio, width, height, duration):
+    mode = clip["effects"]
+    filters = []
+    if mode == "motion" or (mode == "auto" and duration >= 8000 and len(cues) >= 2):
+        if clip["framing"] == "fit":
+            # Start slightly inset and finish at full size to preserve every source edge.
+            step = max(2, round(width * .045 / 18) * 2)
+            padded_w, padded_h = width + 9 * step, height + 16 * step
+            filters.append(f"pad={padded_w}:{padded_h}:(ow-iw)/2:(oh-ih)/2:black")
+            zoom = padded_w / width - 1
+        else:
+            zoom = .045
+        ramp_frames = max(1, round(duration * .03) - 1)
+        filters.append(f"zoompan=z='1+{zoom:.6f}*min(on/{ramp_frames},1)':"
+                       f"x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d=1:s={width}x{height}:fps=30")
+    if mode in {"auto", "fade"} and duration >= 1500:
+        if mode == "fade" or not has_audio:
+            lead = tail = 220
+        elif cues and all(cue.get("word_times") for cue in cues):
+            lead = min(220, min(cue["start_ms"] for cue in cues))
+            tail = min(220, duration - max(cue["end_ms"] for cue in cues))
+        else:
+            lead = tail = 0
+        if lead >= 130:
+            filters.append(f"fade=t=in:d={lead / 1000:.3f}")
+        if tail >= 130:
+            filters.append(f"fade=t=out:st={(duration - tail) / 1000:.3f}:d={tail / 1000:.3f}")
+    return filters
 
 
 def render(task, source, metadata, clip, cues, output, preset, prefer_gpu=False):
@@ -149,19 +202,20 @@ def render(task, source, metadata, clip, cues, output, preset, prefer_gpu=False)
         scaled_w = max(2, min(width, round(height * aspect / 2) * 2))
         scaled_h = max(2, min(height, round(width / aspect / 2) * 2))
         frame = f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black"
-    filters = f"scale={scaled_w}:{scaled_h},setsar=1,{frame},fps=30"
+    filters = [f"scale={scaled_w}:{scaled_h}", "setsar=1", frame, "fps=30"]
+    filters.extend(visual_effects(clip, cues, metadata["has_audio"], width, height, duration))
     disk(output.parent, max(64_000_000, duration * 1500))
     with tempfile.TemporaryDirectory(dir=output.parent, prefix=".clip-render-") as scratch:
         base = Path(scratch)
         if cues:
             write_ass(base / "captions.ass", cues, clip["caption_style"])
-            filters += ",ass=captions.ass"
+            filters.append("ass=captions.ass")
         temp = base / "render.mp4"
         audio = ["-map", f"0:{metadata['audio_index']}", "-c:a", "aac", "-b:a", "160k"] if metadata["has_audio"] else ["-an"]
         base_args = [
             "-progress", "pipe:1", "-filter_threads", "2", *INPUT_OPTIONS, "-ss", f"{clip['start_ms'] / 1000:.3f}",
             "-i", source, "-t", f"{duration / 1000:.3f}", "-map", f"0:{metadata['video_index']}",
-            *audio, "-vf", filters, "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-map_metadata", "-1", "-y",
+            *audio, "-vf", ",".join(filters), "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-map_metadata", "-1", "-y",
         ]
         last = -1
 

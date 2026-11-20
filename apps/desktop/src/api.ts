@@ -9,7 +9,7 @@ export type Project = {
 export type Cue = { id?: string; start_ms: number; end_ms: number; text: string; alignment_needs_review?: boolean }
 export type Clip = {
   id: string; title: string; start_ms: number; end_ms: number; center_x: number; framing: 'fit' | 'fill'; selected: boolean; preview_path: string | null; thumbnail_path: string | null;
-  caption_style: 'white' | 'yellow'; reason?: string; score?: number; cues: Cue[]; updated_at: string
+  caption_style: 'white' | 'yellow'; effects: 'auto' | 'motion' | 'fade' | 'none'; reason?: string; score?: number; cues: Cue[]; updated_at: string
 }
 export type ExportFile = { path: string; size: number; duration_ms: number; encoder: string }
 export type Job = {
