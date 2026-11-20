@@ -40,14 +40,14 @@ def wait_job(client, identifier, timeout=40):
     pytest.fail("A tarefa excedeu o tempo do teste")
 
 
-def fixture_video(path, audio=True):
+def fixture_video(path, audio=True, seconds=5):
     if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
         pytest.skip("FFmpeg/FFprobe necessários")
     inputs = ["-f", "lavfi", "-i", "color=c=black:s=320x180:r=30"]
     if audio:
         inputs += ["-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100"]
     subprocess.run([
-        "ffmpeg", "-v", "error", *inputs, "-t", "5", "-pix_fmt", "yuv420p", "-c:v", "libx264", str(path)
+        "ffmpeg", "-v", "error", *inputs, "-t", str(seconds), "-pix_fmt", "yuv420p", "-c:v", "libx264", str(path)
     ], check=True)
     return path
 
@@ -169,6 +169,42 @@ def test_cancel_running_subprocess(client, tmp_path):
     assert started.wait(5)
     assert client.post(f"/jobs/{job_id}/cancel").status_code == 200
     assert wait_job(client, job_id, 8)["status"] == "cancelled"
+
+
+def test_analysis_reuses_transcript_and_keeps_the_conclusion_in_the_preview(client, tmp_path):
+    source = fixture_video(tmp_path / "café.mp4", seconds=27)
+    project = client.post("/projects", json={"source_kind": "local", "source_uri": str(source)}).json()
+    assert wait_job(client, project["job_id"])["status"] == "done"
+    identifier = project["id"]
+    root = f"/projects/{identifier}"
+    stat = source.stat()
+    passages = [
+        (1000, 4500, "Por que o café da esquina quase fechou?"),
+        (4700, 10000, "Tive medo de fechar o café porque o movimento caiu depois da obra."),
+        (10200, 16300, "Em vez de esperar a rua abrir, começamos a levar café para os vizinhos."),
+        (16500, 23200, "No fim, as entregas salvaram o café e recuperamos todos os empregos."),
+        (23300, 26000, "Mudando de assunto, vamos ao jogo de amanhã."),
+    ]
+    with db.connect(write=True) as conn:
+        conn.execute("UPDATE projects SET analysis=? WHERE id=?", (json.dumps({
+            "transcript_key": ["base", "pt", stat.st_mtime_ns, stat.st_size], "language": "pt",
+            "device": "cpu", "segment_count": len(passages),
+        }), identifier))
+        conn.executemany("INSERT INTO segments VALUES (?,?,?,?,?,?)",
+                         [(db.uid(), identifier, start, end, text, "[]") for start, end, text in passages])
+
+    response = client.post(f"{root}/analyze", json={"language": "pt", "min_seconds": 15, "max_seconds": 25})
+    result = wait_job(client, response.json()["job_id"])
+    assert result["status"] == "done" and result["result"]["count"] == 1, result
+    [clip] = client.get(f"{root}/clips").json()
+    assert 23200 <= clip["end_ms"] <= 23300
+    assert "recuperamos todos os empregos." in " ".join(clip["cues"][-1]["text"].split())
+    assert all("jogo" not in cue["text"] for cue in clip["cues"])
+
+    preview = client.post(f"/clips/{clip['id']}/preview").json()
+    preview_job = wait_job(client, preview["job_id"])
+    assert preview_job["status"] == "done", preview_job
+    assert abs(preview_job["result"]["duration_ms"] - (clip["end_ms"] - clip["start_ms"])) < 150
 
 
 def test_real_whisper_cpu(client, monkeypatch, tmp_path):

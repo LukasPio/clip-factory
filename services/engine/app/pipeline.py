@@ -217,9 +217,13 @@ def analyze(task, project, opts, settings):
                 )
                 db.write_cues(conn, clip_id, project_cues(segments, item["start_ms"], item["end_ms"]))
                 created.append({**item, "id": clip_id})
-        summary = "Sugestões geradas." if len(selected) == opts["clip_count"] else (
-            f"{len(selected)} sugestões geradas. A fala disponível não rendeu mais trechos distintos nos limites escolhidos."
-        )
+        if not selected:
+            summary = "Nenhum trecho com tema e fechamento claros nessa faixa de duração. Tente ampliar os limites."
+        elif len(selected) < opts["clip_count"]:
+            count = "1 sugestão gerada" if len(selected) == 1 else f"{len(selected)} sugestões geradas"
+            summary = f"{count}. Não encontramos mais trechos com tema e fechamento claros nessa faixa de duração."
+        else:
+            summary = "Sugestões geradas."
         analysis.update(ranking=mode, message=summary)
         conn.execute("UPDATE projects SET analysis=?,updated_at=? WHERE id=?", (json.dumps(analysis), db.now(), identifier))
     for row in obsolete:

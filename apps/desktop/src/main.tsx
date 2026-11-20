@@ -332,7 +332,7 @@ function Studio({ api }: { api: Engine }) {
                 {!project.metadata.has_audio ? <p>Este vídeo não tem áudio. Crie um corte manual.</p> :
                   <fieldset className="form" disabled={busy || !settings || !project.source_available}>
                     <div className="inline-fields">
-                      <label>Quantidade<select value={analysis.clip_count} onChange={e => setAnalysis({ ...analysis, clip_count: +e.target.value })}>
+                      <label>Até quantos cortes<select value={analysis.clip_count} onChange={e => setAnalysis({ ...analysis, clip_count: +e.target.value })}>
                         {[3, 4, 5].map(n => <option key={n}>{n}</option>)}</select></label>
                       <label>Mínimo (s)<input type="number" min="15" max="60" value={analysis.min_seconds} onChange={e => setAnalysis({ ...analysis, min_seconds: +e.target.value })} /></label>
                       <label>Máximo (s)<input type="number" min="15" max="60" value={analysis.max_seconds} onChange={e => setAnalysis({ ...analysis, max_seconds: +e.target.value })} /></label>
