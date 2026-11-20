@@ -70,6 +70,64 @@ def test_leaves_out_the_story_when_the_conclusion_cannot_fit():
     assert clip["transcript"].endswith("salvou as fotos da família.")
 
 
+def test_complete_sentences_are_not_enough_when_the_outcome_is_later():
+    segments = transcript(
+        (1000, 4400, "O que aconteceu quando a escola ficou sem energia?"),
+        (4500, 10100, "A escola ficou escura e eu fiquei com medo de perder a comida da cozinha."),
+        (10200, 17900, "Em vez de esperar pela energia, decidi ligar a cozinha à bateria do ônibus."),
+        (18000, 21700, "O ônibus saiu para buscar as crianças e tiraram a bateria."),
+        (21800, 28000, "No fim, um vizinho emprestou um gerador e salvamos toda a comida da escola."),
+    )
+    assert editorial.candidates(segments, 32000, 15000, 20000) == []
+    chosen, _ = editorial.rank_options(Task(), editorial.candidates(segments, 32000, 15000, 30000), 5, False)
+    [clip] = chosen
+    assert clip["transcript"].startswith(segments[0]["text"])
+    assert clip["transcript"].endswith(segments[-1]["text"])
+
+
+def test_rejects_an_answer_that_loses_its_question_and_referent():
+    segments = transcript(
+        (1000, 13300, "Por que a prefeitura cancelou as bolsas de estudo para quem morava longe da faculdade?"),
+        (13400, 18200, "A mudança assustou os estudantes que dependiam daquele dinheiro para pegar o ônibus."),
+        (18300, 25000, "Em vez de aceitar a mudança, eles levaram ao conselho os recibos da passagem."),
+        (25100, 32800, "No fim, o conselho devolveu o dinheiro e os estudantes voltaram para a faculdade."),
+    )
+    assert editorial.candidates(segments, 35000, 15000, 21000) == []
+    chosen, _ = editorial.rank_options(Task(), editorial.candidates(segments, 35000, 15000, 34000), 5, False)
+    assert [clip["title"] for clip in chosen] == [segments[0]["text"]]
+
+
+def test_avoids_cutting_a_list_before_the_promised_steps():
+    segments = transcript(
+        (1000, 5000, "Como eu melhorei o café da padaria com dois ajustes?"),
+        (5100, 18300, "O primeiro passo foi ajustar a moagem porque o café ficava amargo e a água passava devagar."),
+        (18400, 23800, "O segundo passo foi pesar a água para conseguir repetir a receita durante o turno."),
+        (23900, 29500, "No fim, os dois ajustes deixaram o café da padaria mais doce em todos os turnos."),
+    )
+    assert editorial.candidates(segments, 32000, 15000, 20000) == []
+    chosen, _ = editorial.rank_options(Task(), editorial.candidates(segments, 32000, 15000, 31000), 5, False)
+    assert len(chosen) == 1 and chosen[0]["transcript"].endswith(segments[-1]["text"])
+
+
+def test_accepts_an_explanation_when_it_answers_the_opening_question():
+    segments = transcript(
+        (1000, 4400, "Por que os tomates racham depois da chuva?"),
+        (4500, 9800, "Na estação seca, a casca dos tomates cresce devagar e fica menos flexível."),
+        (9900, 19800, "Os tomates racham porque a chuva repentina faz a polpa crescer mais rápido do que a casca."),
+    )
+    chosen, _ = editorial.rank_options(Task(), editorial.candidates(segments, 21500, 15000, 25000), 5, False)
+    assert len(chosen) == 1 and chosen[0]["transcript"].endswith(segments[-1]["text"])
+
+
+def test_explaining_a_detail_does_not_resolve_the_opening_question():
+    segments = transcript(
+        (1000, 4200, "Por que a padaria abandonou o forno a lenha?"),
+        (4300, 10500, "Naquela época, o forno ficava aceso durante todo o turno da equipe."),
+        (10600, 19000, "O forno demorava para aquecer porque a madeira armazenada ao ar livre estava úmida."),
+    )
+    assert editorial.candidates(segments, 21500, 15000, 25000) == []
+
+
 def test_uses_word_timing_to_end_before_an_unrelated_topic_in_the_same_segment():
     segments = [*STORY[:-1], dict(STORY[-1])]
     last = segments[-1]

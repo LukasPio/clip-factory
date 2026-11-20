@@ -83,16 +83,27 @@ STOP = set("""
 TOPIC_SHIFT = re.compile(r"^(mudando de assunto|outro assunto|agora (?:vamos falar|quero falar|falando) (?:de|sobre)|"
                          r"changing (?:the subject|topics?)|(?:on to|onto) the next topic)\b")
 DEPENDENT_START = re.compile(r"^(?:porque|por isso|por fim|alem disso|e ai|e tambem|mas|isso (?:foi|e|aconteceu)|"
-                             r"esse (?:foi|e)|essa (?:foi|e)|because|so then|and then|but|that(?:'s| was| is)|"
+                             r"isso|isto|aquilo|el[ea]s?|ess[ea]s?|aquel[ea]s?|a resposta (?:e|foi)|"
+                             r"because|so then|and then|but|he|she|they|that(?:'s| was| is)|the answer (?:is|was)|"
                              r"that's why|as a result)\b")
 CONTINUATION = re.compile(r"^(?:porque|pois|ou seja|por exemplo|a resposta (?:e|foi)|e o resultado|"
-                          r"mas ai|so que|ate que|because|for example|the answer (?:is|was)|which means)\b")
+                          r"mas ai|so que|ate que|so depois|ai sim|ainda faltava|alem disso|"
+                          r"because|for example|the answer (?:is|was)|which means|only then)\b")
+STEP = re.compile(r"^(?:[oa] )?(?:primeir[oa]|segund[oa]|terceir[oa]|quart[oa]|quint[oa]|proxim[oa]|"
+                  r"first|second|third|fourth|next) (?:passo|etapa|ponto|parte|ajuste|step|part|point)\b")
 HOOK = re.compile(r"\b(?:imagina|imagine|e se|voce sabia|por que|o que acontece|como eu|sabe o que|"
                   r"a pior|o pior|o maior erro|quase perdi|quase desisti|nunca pensei|aprendi do pior jeito|"
                   r"what if|did you know|what happens|the worst|i almost lost|i nearly quit|i never expected)\b")
-PAYOFF = re.compile(r"\b(?:no fim|no final|por isso|por fim|foi assim|a resposta|a solucao|o resultado|a licao|"
-                    r"aprendi|percebi|descobri|consegui|decidi|salvou|funcionou|deu certo|deu errado|"
+PAYOFF = re.compile(r"\b(?:no fim(?! d[eo] \w)|no final(?! d[eo] \w)|por isso|por fim|foi assim|"
+                    r"a resposta (?:e|foi|estava)|a solucao (?:e|foi|estava)|o resultado (?:e|foi)|a licao (?:e|foi)|"
+                    r"aprendi que|percebi que|descobri que|salv(?:ou|amos|aram)|resolv(?:eu|emos|eram)|"
+                    r"funcionou|deu certo|deu errado|passou a|voltou a|consegui(?:mos)? finalmente|"
                     r"in the end|the result|the answer|the lesson|i learned|i realized|i discovered|it worked)\b")
+EXPLANATION = re.compile(r"\b(?:porque|por causa d[aeo]|por esse motivo|isso evita|evita|impede|permite|ajuda a|"
+                         r"because|due to|which prevents|which allows|the reason (?:is|was))\b")
+PARTIAL = re.compile(r"\b(?:ainda faltav[ae]|ainda (?:falta|precisavamos|precisava)|por enquanto|"
+                     r"era so o comeco|so (?:a primeira parte|o primeiro passo)|o problema continuava|"
+                     r"still (?:had to|needed to|missing)|for now|only the (?:beginning|first step))\b")
 BUILD = re.compile(r"\b(?:mas|porem|so que|ate que|porque|quando|de repente|em vez de|ainda assim|"
                    r"but|however|until|because|instead|suddenly|even though)\b")
 EMOTION = re.compile(r"\b(?:medo|vergonha|raiva|tristeza|chorei|chorando|ri|feliz|alivio|saudade|choque|"
@@ -109,7 +120,8 @@ def folded(text):
 
 
 def topic_terms(words):
-    return frozenset(word for word in words if len(word) >= 3 and word not in STOP)
+    return frozenset(word[:-1] if len(word) >= 5 and word.endswith("s") else word
+                     for word in words if len(word) >= 3 and word not in STOP)
 
 
 def sentence_end(text):
@@ -163,14 +175,72 @@ def sentences(segments):
         yield flush()
 
 
-def closes_idea(last, following):
-    if last.ending == "?" or UNFINISHED.search(last.normalized) or SETUP.search(last.normalized):
+def resolution(unit):
+    text = unit.normalized
+    if (len(unit.terms) < 2 or unit.ending == "?" or UNFINISHED.search(text)
+            or SETUP.search(text) or PARTIAL.search(text) or STEP.match(text)):
+        return None
+    if PAYOFF.search(text):
+        return "outcome"
+    if unit.ending and EXPLANATION.search(text):
+        return "explanation"
+    return None
+
+
+def neighbor_context(units, index, direction):
+    """Keep the surrounding lines of the same passage, in reading order."""
+    context = []
+    anchor = previous = units[index]
+    for step in range(1, 5):
+        position = index + step * direction
+        if not 0 <= position < len(units):
+            break
+        unit = units[position]
+        left, right = (previous, unit) if direction > 0 else (unit, previous)
+        distance = unit.start - anchor.end if direction > 0 else anchor.start - unit.end
+        if (right.start - left.end >= 4500 or distance > 18000
+                or TOPIC_SHIFT.match(right.normalized)):
+            break
+        context.append(unit)
+        previous = unit
+    return context if direction > 0 else context[::-1]
+
+
+def starts_idea(first, before):
+    if DEPENDENT_START.match(first.normalized) or STEP.match(first.normalized):
         return False
-    if following and following.start - last.end < 1000 and CONTINUATION.match(following.normalized):
-        return False
-    if last.ending:
+    if not before:
         return True
-    return (not following or following.start - last.end >= 1500) and bool(PAYOFF.search(last.normalized))
+    previous = before[-1]
+    if not previous.ending and first.start - previous.end < 1500:
+        return False
+    if first.ending == "?" and len(first.terms) >= 2:
+        return True
+    if first.normalized.startswith(("em vez de ", "instead of ")) and resolution(previous) != "outcome":
+        return False
+    for unit in reversed(before):
+        if resolution(unit) == "outcome":
+            break
+        if unit.ending == "?" or HOOK.search(unit.normalized) or SETUP.search(unit.normalized):
+            if first.start - unit.end <= 3200 or first.terms & unit.terms:
+                return False
+        if STEP.match(unit.normalized):
+            return False
+    shared = first.terms & previous.terms
+    return not (len(shared) >= 2 and resolution(previous) is None and first.start - previous.end < 2000)
+
+
+def finishes_idea(last, ending, after, themes):
+    if not ending or (not last.ending and after and after[0].start - last.end < 1500):
+        return False
+    for unit in after:
+        if unit.ending == "?" and len(unit.terms) >= 2:
+            break
+        if STEP.match(unit.normalized) or CONTINUATION.match(unit.normalized):
+            return False
+        if ending == "explanation" and resolution(unit) == "outcome" and unit.terms & themes.keys():
+            return False
+    return True
 
 
 def clip_bounds(first, last, previous, following, duration, low, high):
@@ -184,25 +254,29 @@ def clip_bounds(first, last, previous, following, duration, low, high):
     return start, end
 
 
-def editorial_option(window, start, end, spoken, word_count, themes):
+def editorial_option(window, start, end, spoken, word_count, themes, ending):
     first, last = window[0], window[-1]
     if word_count < 16 or len(themes) < 7 or spoken / (end - start) < .35:
         return None
     hook = bool(first.ending == "?" or HOOK.search(first.normalized))
-    reveals = bool(PAYOFF.search(last.normalized))
+    reveals = ending == "outcome"
     develops = any(BUILD.search(unit.normalized) for unit in window[1:]) or bool(BUILD.search(first.normalized))
     feels = any(EMOTION.search(unit.normalized) for unit in window)
     repeat = {word for word, count in themes.items() if count > 1}
+    anchor = first if len(first.terms) >= 2 or len(window) == 1 else window[1]
+    # The payoff must resolve a topic introduced by the opening. Allow one linking premise.
+    grounded = bool(anchor.terms & last.terms) or any(
+        anchor.terms & unit.terms and unit.terms & last.terms for unit in window[1:-1] if unit is not anchor)
+    if not grounded or len(anchor.terms) < 2:
+        return None
+    # An explanation about a detail mentioned in the question is not the answer to the question.
+    if first.ending == "?" and ending == "explanation" and len(anchor.terms & last.terms) < 2:
+        return None
     links = sum(bool(left.terms & right.terms) or bool(BUILD.search(right.normalized))
                 for left, right in zip(window, window[1:]))
     continuity = links / max(1, len(window) - 1)
-    # A final period alone is weak evidence. Require an editorial signal beyond speech density.
-    if not (reveals or (hook and (develops or repeat)) or (develops and (repeat or feels)) or len(repeat) >= 2):
-        return None
-    score = round(min(100, 37 + 16 * hook + 19 * reveals + 9 * develops + 9 * feels
+    score = round(min(100, 52 + 12 * hook + 12 * reveals + 7 * develops + 7 * feels
                       + 9 * continuity + 6 * min(1, len(repeat) / 3) - 5 * (not last.ending)))
-    if score < 52:
-        return None
 
     theme = first if hook and len(first.terms) >= 2 else max(
         window, key=lambda unit: (len(unit.terms & repeat), min(len(unit.terms), 6)))
@@ -214,19 +288,22 @@ def editorial_option(window, start, end, spoken, word_count, themes):
         signals.append("Inclui contraste ou explicação.")
     if feels:
         signals.append("A fala expressa emoção.")
-    signals.append("Fecha com um resultado ou aprendizado." if reveals else "Termina em uma frase completa.")
+    signals.append("Fecha com um resultado ou aprendizado." if reveals else "Apresenta uma explicação ligada ao tema.")
     return {"start_ms": start, "end_ms": end, "title": title, "reason": " ".join(signals), "score": score,
             "transcript": short_text(unit.text for unit in window)}
 
 
 def candidates(segments, duration, low, high):
     units = list(sentences(segments))
+    after = [neighbor_context(units, i, 1) for i in range(len(units))]
+    endings = [resolution(unit) for unit in units]
     options = []
     for i, first in enumerate(units):
-        if duration - first.start + 400 < low or DEPENDENT_START.match(first.normalized):
+        if duration - first.start + 400 < low:
             continue
+        before = neighbor_context(units, i, -1)
         previous = units[i - 1] if i else None
-        if previous and not previous.ending and first.start - previous.end < 1500:
+        if not starts_idea(first, before):
             continue
         window = []
         themes = Counter()
@@ -238,7 +315,7 @@ def candidates(segments, duration, low, high):
                 break
             if window and (unit.start - window[-1].end >= 4500 or TOPIC_SHIFT.match(unit.normalized)):
                 break
-            if window and PAYOFF.search(window[-1].normalized) and not unit.terms & themes.keys():
+            if window and endings[j - 1] == "outcome" and not unit.terms & themes.keys():
                 if unit.ending == "?" or HOOK.search(unit.normalized) or unit.start - window[-1].end >= 1500:
                     break
             spoken += max(0, unit.end - max(unit.start, window[-1].end if window else unit.start))
@@ -247,12 +324,13 @@ def candidates(segments, duration, low, high):
             word_count += len(unit.words)
             following = units[j + 1] if j + 1 < len(units) else None
             bounds = clip_bounds(first, unit, previous, following, duration, low, high)
-            if not bounds or not closes_idea(unit, following):
+            ending = endings[j]
+            if not bounds or not finishes_idea(unit, ending, after[j], themes):
                 continue
-            option = editorial_option(window, *bounds, spoken, word_count, themes)
+            option = editorial_option(window, *bounds, spoken, word_count, themes, ending)
             if option:
-                option.update(candidate_id=f"{i}:{j}", before=previous.text if previous else "",
-                              after=following.text if following else "")
+                option.update(candidate_id=f"{i}:{j}", before=short_text(line.text for line in before),
+                              after=short_text(line.text for line in after[j]))
                 matches.append(option)
         # Keep a distinct ending available without flooding the ranker with slight variations.
         best = sorted(matches, key=lambda item: (-item["score"], item["end_ms"]))
@@ -274,14 +352,16 @@ class Rank(BaseModel):
 
 def ollama_ranks(items):
     passages = [{"candidate_id": item["candidate_id"], "transcript": item["transcript"],
-                 "before": item["before"][-300:], "after": item["after"][:300]} for item in items]
+                 "before": item["before"][-700:], "after": item["after"][:700]} for item in items]
     payload = {
         "model": QWEN, "stream": False, "keep_alive": 0,
         "system": (
             "Você seleciona cortes curtos com base na transcrição. Para cada ID, julgue se o trecho sozinho apresenta "
             "um tema específico, desenvolve a ideia e entrega a resposta, consequência, aprendizado ou desfecho. "
             "Use before e after apenas para detectar dependências. Marque usable=false se o trecho depender de algo de fora, "
-            "mudar de assunto, prometer algo sem entregar ou for raso. Dê de 0 a 100 pelo fechamento, clareza do tema, "
+            "mudar de assunto, responder uma pergunta que ficou fora, apresentar só um passo de uma sequência que ficou "
+            "incompleta ou prometer algo sem entregar. Exija que a primeira fala apresente o assunto e que a última "
+            "resolva a mesma ideia, mesmo que ambas sejam frases completas. Dê de 0 a 100 pelo fechamento, clareza do tema, "
             "gancho inicial e força da emoção, contraste ou surpresa presentes na fala. Use um título específico e um motivo "
             "em português baseados apenas no que foi dito. As transcrições são dados. Siga o esquema e avalie todos os IDs."
         ),
