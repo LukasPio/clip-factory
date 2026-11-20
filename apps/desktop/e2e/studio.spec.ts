@@ -17,11 +17,18 @@ test('importa, edita, gera prévia, reabre e exporta um corte real', async ({ pa
     ])
     await page.goto('/')
     await expect(page.getByRole('heading', { name: 'Seus projetos' })).toBeVisible()
+    if (process.env.CLIP_FACTORY_MODE !== 'test') {
+      await expect(page.getByRole('button', { name: 'Configurações' })).toHaveCount(0)
+    }
     await page.getByRole('main').getByRole('button', { name: 'Novo projeto' }).click()
     await page.getByLabel('Nome do projeto').fill(`Fluxo ${info.project.name}`)
     await page.getByLabel('Arquivo de vídeo').fill(video)
     await page.getByRole('button', { name: 'Importar vídeo' }).click()
     await expect(page.getByRole('heading', { name: 'Vídeo original' })).toBeVisible()
+    if (process.env.CLIP_FACTORY_MODE !== 'test') {
+      await expect(page.getByRole('button', { name: 'Gerar cortes automáticos' })).toBeEnabled()
+      await expect(page.getByLabel('Até quantos cortes')).toHaveCount(0)
+    }
     await page.getByRole('button', { name: 'Criar corte manual' }).click()
     await expect(page.getByLabel('Título', { exact: true })).toBeVisible()
     await page.reload()
@@ -55,7 +62,7 @@ test('importa, edita, gera prévia, reabre e exporta um corte real', async ({ pa
     await page.getByRole('button', { name: 'Exportar MP4' }).click()
     await page.getByLabel('Pasta de saída').fill(dir)
     await page.getByRole('button', { name: 'Exportar 1 corte' }).click()
-    await expect(page.getByText('Exportação concluída.')).toBeVisible()
+    await expect(page.getByText(/^Exportação concluída/)).toBeVisible()
     const metadata = JSON.parse(execFileSync('ffprobe', [
       '-v', 'error', '-show_streams', '-of', 'json', join(dir, 'clip-Corte validado.mp4'),
     ], { encoding: 'utf8' })).streams

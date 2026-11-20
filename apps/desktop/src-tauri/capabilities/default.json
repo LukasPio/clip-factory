@@ -1,5 +1,6 @@
 {
   "identifier": "main",
   "windows": ["main"],
-  "permissions": ["core:default", "dialog:allow-open", "opener:allow-reveal-item-in-dir"]
+  "permissions": ["core:default", "dialog:allow-open", "opener:allow-reveal-item-in-dir",
+    { "identifier": "opener:allow-open-url", "allow": [{ "url": "https://ollama.com/download/windows" }] }]
 }

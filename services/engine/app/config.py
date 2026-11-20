@@ -15,6 +15,15 @@ DEFAULTS = {
     "whisper_model": "base", "language": "auto", "use_gpu": False,
     "use_llm": False, "default_export_dir": "", "default_caption_style": "white",
 }
+PRODUCTION_SETTINGS = {**DEFAULTS, "whisper_model": "medium", "use_gpu": True, "use_llm": True}
+PRODUCTION_ANALYSIS = {
+    "clip_count": 5, "min_seconds": 15, "max_seconds": 60, "language": "auto",
+    "use_llm": True, "download_model": True,
+}
+
+
+def production_mode():
+    return os.environ.get("CLIP_FACTORY_MODE") != "test"
 
 
 class Problem(Exception):

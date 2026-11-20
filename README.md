@@ -31,9 +31,11 @@ A janela inicia e encerra o motor. Para trabalhar apenas na interface em Linux o
 3. Abra uma sugestão ou crie um corte manual. Ajuste intervalo, enquadramento e legendas. Gere a prévia vertical para ouvir a fala e conferir os tempos.
 4. Exporte um corte ou a seleção. As opções são 1080 × 1920 e 720 × 1280, ambas com 30 FPS. Para áudio presente, a saída contém AAC.
 
-O perfil **Teste leve** usa Whisper `base` em CPU/int8. O perfil **Produção GPU** tenta CUDA com `small` e NVENC, com fallback para CPU. O diagnóstico faz um encode real para verificar NVENC e Quick Sync.
+O app abre em **Produção**. Importe um vídeo e clique em **Gerar cortes automáticos**. A análise usa Whisper `medium` e revisa as sugestões localmente com Ollama e Qwen `7B`. O primeiro uso baixa os modelos. Se a revisão falhar, a análise informa o erro e mantém as sugestões anteriores. A exportação usa 1080 × 1920. CUDA e NVENC são usados quando disponíveis, com fallback para CPU.
 
-O seletor procura trechos com começo compreensível, desenvolvimento e desfecho. A quantidade escolhida é um máximo. Para revisar também o sentido dos trechos com um modelo local, instale Ollama, execute `ollama pull qwen2.5:3b` e habilite o ajuste. O motor envia somente uma lista curta de trechos e as frases vizinhas ao Ollama local. Use **Gerar cortes automáticos** para aplicar o seletor a um projeto existente. Quando a transcrição já estiver disponível para as mesmas configurações, ela é reaproveitada.
+O preparo do Windows instala Ollama para Produção. Se você recebeu apenas o aplicativo instalado, abra o [instalador do Ollama para Windows](https://ollama.com/download/windows) uma vez e mantenha Ollama aberto em segundo plano. O Qwen `7B` ocupa cerca de 4,7 GB, além do espaço do Ollama e do Whisper.
+
+Para acessar os ajustes avançados durante o desenvolvimento, defina `$env:CLIP_FACTORY_MODE = 'test'` antes de executar o script de desenvolvimento. O modo Teste começa com Whisper `base` em CPU e a revisão com Ollama `3B` é opcional. Remova a variável para voltar a Produção. O aplicativo empacotado inicia sempre em Produção.
 
 Use **Link de vídeo** para importar um vídeo gravado que você tem autorização para editar. O yt-dlp aceita links do YouTube, clipes e gravações da Twitch, posts do X/Twitter, Reels do Instagram e outros sites compatíveis. O importador baixa arquivos diretos e gravações em HLS ou DASH e usa o FFmpeg para juntar áudio e vídeo quando vêm separados. O limite é de 2 GB por importação. Lives, playlists e conteúdo com DRM não são aceitos.
 

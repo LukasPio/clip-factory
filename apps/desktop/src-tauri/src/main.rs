@@ -48,6 +48,9 @@ fn launch(
             "clip-engine"
         }))
     };
+    if !cfg!(debug_assertions) {
+        command.env("CLIP_FACTORY_MODE", "production");
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;

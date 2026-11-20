@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { createRoot } from 'react-dom/client'
 import { open } from '@tauri-apps/plugin-dialog'
-import { revealItemInDir } from '@tauri-apps/plugin-opener'
+import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener'
 import Editor from './Editor'
 import { active, connect, Engine, size, time, type Clip, type Diagnostics, type Job, type Project, type Settings } from './api'
 import './style.css'
@@ -109,9 +109,8 @@ function Configuration({ api, settings, setSettings, disabled, run }: {
     <section className="panel">
       <h2>Configurações</h2>
       <fieldset disabled={disabled} className="form">
-        <label>Perfil de processamento<select value={draft.use_gpu ? 'gpu' : 'cpu'} onChange={e => {
-          const gpu = e.target.value === 'gpu'; update({ use_gpu: gpu, whisper_model: gpu ? 'small' : 'base' })
-        }}><option value="cpu">Teste leve · CPU / int8</option><option value="gpu">Produção GPU · CUDA / NVENC</option></select></label>
+        <label>Processamento no modo Teste<select value={draft.use_gpu ? 'gpu' : 'cpu'} onChange={e => update({ use_gpu: e.target.value === 'gpu' })}>
+          <option value="cpu">CPU / int8</option><option value="gpu">GPU · CUDA / NVENC</option></select></label>
         <label>Modelo de voz<select value={draft.whisper_model} onChange={e => update({ whisper_model: e.target.value as Settings['whisper_model'] })}>
           {['tiny', 'base', 'small', 'medium'].map(model => <option key={model}>{model}</option>)}
         </select></label>
@@ -274,7 +273,8 @@ function Studio({ api }: { api: Engine }) {
       <nav aria-label="Menu principal">
         <button disabled={pending} aria-current={view === 'home' ? 'page' : undefined} onClick={() => { setSelected(null); setView('home'); setExporting(null) }}>Projetos</button>
         <button disabled={pending} aria-current={view === 'import' ? 'page' : undefined} onClick={() => setView('import')}>Novo projeto</button>
-        <button disabled={pending} aria-current={view === 'settings' ? 'page' : undefined} onClick={() => setView('settings')}>Configurações</button>
+        {settings?.mode === 'test' && <button disabled={pending} aria-current={view === 'settings' ? 'page' : undefined}
+          onClick={() => setView('settings')}>Configurações</button>}
       </nav>
       <div className="sidebar-foot"><span /> Motor local conectado</div>
     </aside>
@@ -287,6 +287,9 @@ function Studio({ api }: { api: Engine }) {
           {active(job) ? <button onClick={() => void run(() => api.request(`/jobs/${job.id}/cancel`, 'POST'))}>Cancelar</button>
             : <button onClick={() => setJob(null)}>Fechar aviso</button>}</div>
         {active(job) && <progress aria-label="Progresso da etapa" max={1} value={job.progress ?? undefined} />}
+        {job.error_code === 'OLLAMA_UNAVAILABLE' && <button onClick={() => void run(() => openUrl('https://ollama.com/download/windows'))}>
+          Baixar Ollama para Windows
+        </button>}
         {job.result?.files?.map(file => <p className="export-result" key={file.path}><span className="path">{file.path} · {size(file.size)} · {time(file.duration_ms)}</span>
           <button onClick={() => void run(() => revealItemInDir(file.path))}>Abrir pasta</button></p>)}
       </section>}
@@ -297,7 +300,7 @@ function Studio({ api }: { api: Engine }) {
         </button>)}</div>
       </>}
       {view === 'import' && <Import api={api} busy={busy} run={run} done={async item => { showProject(item.id); await track(item.job_id, item.id) }} />}
-      {view === 'settings' && settings && <Configuration api={api} settings={settings} setSettings={setSettings} disabled={busy} run={run} />}
+      {view === 'settings' && settings?.mode === 'test' && <Configuration api={api} settings={settings} setSettings={setSettings} disabled={busy} run={run} />}
       {view === 'project' && project && <>
         <div className="project-actions">
           <button disabled={busy} onClick={() => void run(async () => {
@@ -327,20 +330,23 @@ function Studio({ api }: { api: Engine }) {
                   : <p className="muted">{sourceError ? 'Formato indisponível no player original. A prévia do corte usa H.264.' : 'A fonte está indisponível ou ainda está carregando.'}</p>}
                 <p>{project.metadata.width} × {project.metadata.height} · {time(project.metadata.duration_ms)} · {size(project.metadata.size)} · {project.metadata.has_audio ? 'Com áudio' : 'Sem áudio'}</p>
               </section>
-              <section className="panel"><h2>Análise de fala</h2>
-                {project.analysis && <p className="notice">{project.analysis.message} {project.analysis.segment_count} segmentos em {project.analysis.language}. {project.analysis.device.toUpperCase()}{project.analysis.cpu_fallback ? ' (fallback)' : ''} · {project.analysis.ranking === 'hybrid' ? 'Ollama + heurísticas' : project.analysis.ranking === 'heuristic_fallback' ? 'Heurísticas · Ollama indisponível' : 'Heurísticas'}</p>}
+              <section className="panel"><h2>{settings?.mode === 'test' ? 'Análise de fala' : 'Cortes automáticos'}</h2>
+                {project.analysis?.message && <p className="notice">{project.analysis.message}
+                  {settings?.mode === 'test' && ` ${project.analysis.segment_count} segmentos em ${project.analysis.language}. ${project.analysis.device.toUpperCase()}${project.analysis.cpu_fallback ? ' (fallback)' : ''} · ${project.analysis.ranking === 'hybrid' ? 'Ollama + heurísticas' : project.analysis.ranking === 'heuristic_fallback' ? 'Heurísticas · Ollama indisponível' : 'Heurísticas'}`}
+                </p>}
                 {!project.metadata.has_audio ? <p>Este vídeo não tem áudio. Crie um corte manual.</p> :
                   <fieldset className="form" disabled={busy || !settings || !project.source_available}>
-                    <div className="inline-fields">
+                    {settings?.mode === 'test' ? <><div className="inline-fields">
                       <label>Até quantos cortes<select value={analysis.clip_count} onChange={e => setAnalysis({ ...analysis, clip_count: +e.target.value })}>
                         {[3, 4, 5].map(n => <option key={n}>{n}</option>)}</select></label>
                       <label>Mínimo (s)<input type="number" min="15" max="60" value={analysis.min_seconds} onChange={e => setAnalysis({ ...analysis, min_seconds: +e.target.value })} /></label>
                       <label>Máximo (s)<input type="number" min="15" max="60" value={analysis.max_seconds} onChange={e => setAnalysis({ ...analysis, max_seconds: +e.target.value })} /></label>
                     </div>
                     <label className="checkbox"><input type="checkbox" checked={analysis.download_model} onChange={e => setAnalysis({ ...analysis, download_model: e.target.checked })} />
-                      Permitir download do modelo Whisper {settings?.whisper_model}, se necessário.</label>
+                      Permitir download do modelo Whisper {settings.whisper_model}, se necessário.</label></>
+                      : <p className="muted">A primeira análise pode baixar os modelos de voz e revisão.</p>}
                     <button className="primary" onClick={() => void run(async () => track((await api.request<JobResponse>(`/projects/${project.id}/analyze`, 'POST', {
-                      ...analysis, language: settings?.language, use_llm: settings?.use_llm,
+                      ...(settings?.mode === 'test' ? { ...analysis, language: settings.language, use_llm: settings.use_llm } : {}),
                     })).job_id))}>Gerar cortes automáticos</button>
                   </fieldset>}
               </section>
@@ -390,9 +396,9 @@ function Studio({ api }: { api: Engine }) {
             const path = await open({ directory: true }); if (typeof path === 'string') setDirectory(path)
           })}>Escolher pasta de saída…</button>{directory && <p className="path">{directory}</p>}</>}
         {exporting.length === 1 && <label>Nome do arquivo<input value={filename} maxLength={180} onChange={e => setFilename(e.target.value)} placeholder={exporting[0].title} /></label>}
-        <label>Resolução<select value={preset} onChange={e => setPreset(e.target.value as typeof preset)}>
+        {settings?.mode === 'test' && <label>Resolução<select value={preset} onChange={e => setPreset(e.target.value as typeof preset)}>
           <option value="1080p">1080 × 1920</option><option value="720p">720 × 1280</option>
-        </select></label>
+        </select></label>}
         <button className="primary" disabled={busy || !directory} onClick={() => void run(async () => {
           const response = await api.request<JobResponse>('/exports', 'POST', {
             project_id: project.id, clip_ids: exporting.map(item => item.id), output_dir: directory, preset, filename: filename.trim() || undefined,

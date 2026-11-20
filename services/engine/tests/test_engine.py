@@ -15,6 +15,7 @@ AUTH = {"Authorization": "Bearer session"}
 
 @pytest.fixture
 def engine_path(tmp_path, monkeypatch):
+    monkeypatch.setenv("CLIP_FACTORY_MODE", "test")
     data = tmp_path / "data"
     for module in (db, diagnostics, jobs, main, pipeline):
         if hasattr(module, "DATA"):
@@ -253,7 +254,20 @@ def test_cancel_running_subprocess(client, tmp_path):
     assert wait_job(client, job_id, 8)["status"] == "cancelled"
 
 
-def test_analysis_reuses_transcript_and_keeps_the_conclusion_in_the_preview(client, tmp_path):
+@pytest.mark.parametrize("mode", ["test", "production"])
+def test_analysis_reuses_transcript_and_keeps_the_conclusion_in_the_preview(client, tmp_path, monkeypatch, mode):
+    from app import editorial
+
+    monkeypatch.setenv("CLIP_FACTORY_MODE", mode)
+    prepared, reviewed = [], []
+    monkeypatch.setattr(pipeline, "prepare_production_review", lambda task: prepared.append(task.id))
+
+    def review(batch, *, model, **_kwargs):
+        reviewed.append(model)
+        return {item["candidate_id"]: editorial.Rank(candidate_id=item["candidate_id"], usable=True, score=90,
+                title="Como o café recuperou os empregos", reason="Mostra o problema e o desfecho.") for item in batch}
+
+    monkeypatch.setattr(editorial, "ollama_ranks", review)
     source = fixture_video(tmp_path / "café.mp4", seconds=27)
     project = client.post("/projects", json={"source_kind": "local", "source_uri": str(source)}).json()
     assert wait_job(client, project["job_id"])["status"] == "done"
@@ -269,19 +283,35 @@ def test_analysis_reuses_transcript_and_keeps_the_conclusion_in_the_preview(clie
     ]
     with db.connect(write=True) as conn:
         conn.execute("UPDATE projects SET analysis=? WHERE id=?", (json.dumps({
-            "transcript_key": ["base", "pt", stat.st_mtime_ns, stat.st_size], "language": "pt",
+            "transcript_key": ["medium", "auto", stat.st_mtime_ns, stat.st_size] if mode == "production" else
+            ["base", "pt", stat.st_mtime_ns, stat.st_size], "language": "pt",
             "device": "cpu", "segment_count": len(passages),
         }), identifier))
         conn.executemany("INSERT INTO segments VALUES (?,?,?,?,?,?)",
                          [(db.uid(), identifier, start, end, text, "[]") for start, end, text in passages])
 
-    response = client.post(f"{root}/analyze", json={"language": "pt", "min_seconds": 15, "max_seconds": 25})
+    response = client.post(f"{root}/analyze", json={"language": "pt", "min_seconds": 15, "max_seconds": 25, "use_llm": False})
     result = wait_job(client, response.json()["job_id"])
     assert result["status"] == "done" and result["result"]["count"] == 1, result
     [clip] = client.get(f"{root}/clips").json()
     assert 23200 <= clip["end_ms"] <= 23300
     assert "recuperamos todos os empregos." in " ".join(clip["cues"][-1]["text"].split())
     assert all("jogo" not in cue["text"] for cue in clip["cues"])
+    if mode == "production":
+        assert prepared and reviewed == [editorial.PRODUCTION_QWEN]
+        assert client.patch("/settings", json={"use_llm": False}).status_code == 403
+        assert result["result"]["ranking"] == "hybrid"
+
+        def unavailable(*_args, **_kwargs):
+            raise OSError("local service stopped")
+
+        monkeypatch.setattr(editorial, "ollama_ranks", unavailable)
+        retry = client.post(f"{root}/analyze", json={"use_llm": False}).json()
+        failed = wait_job(client, retry["job_id"])
+        assert failed["error_code"] == "OLLAMA_REVIEW_FAILED"
+        assert [item["id"] for item in client.get(f"{root}/clips").json()] == [clip["id"]]
+    else:
+        assert not prepared and not reviewed and result["result"]["ranking"] == "heuristic"
 
     preview = client.post(f"/clips/{clip['id']}/preview").json()
     preview_job = wait_job(client, preview["job_id"])

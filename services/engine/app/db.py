@@ -8,7 +8,7 @@ from uuid import uuid4
 from sqlalchemy import URL, create_engine, event
 from sqlalchemy.pool import NullPool
 
-from .config import DATA, DEFAULTS, Problem
+from .config import DATA, DEFAULTS, PRODUCTION_SETTINGS, Problem, production_mode
 from .media import discard_cache
 
 SCHEMA = """
@@ -130,8 +130,10 @@ def get(db, table, identifier):
 
 
 def settings(db):
+    if production_mode():
+        return {**PRODUCTION_SETTINGS, "mode": "production"}
     row = db.execute("SELECT value FROM settings WHERE id=1").fetchone()
-    return {**DEFAULTS, **(json.loads(row["value"]) if row else {})}
+    return {**DEFAULTS, **(json.loads(row["value"]) if row else {}), "mode": "test"}
 
 
 def project_segments(db, project_id):

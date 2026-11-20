@@ -8,7 +8,7 @@ from pathlib import Path
 from . import db, media
 from .config import DATA, MODELS, PROJECTS, Problem, safe_filename, worker
 from .downloader import MAX_BYTES
-from .editorial import candidates, normalize_segments, project_cues, rank_options
+from .editorial import candidates, normalize_segments, prepare_production_review, project_cues, rank_options
 
 
 def source_for(project):
@@ -166,6 +166,9 @@ def analyze(task, project, opts, settings):
     metadata = project["metadata"]
     if not metadata["has_audio"]:
         raise Problem("NO_AUDIO", "O vídeo não tem áudio. Crie um corte manual.")
+    production = settings["mode"] == "production"
+    if production:
+        prepare_production_review(task)
     identifier = project["id"]
     folder = PROJECTS / identifier
     duration = metadata["duration_ms"]
@@ -196,7 +199,7 @@ def analyze(task, project, opts, settings):
             conn.execute("UPDATE projects SET analysis=?,updated_at=? WHERE id=?", (json.dumps(analysis), db.now(), identifier))
     task.phase("ranking", "Selecionando trechos da transcrição")
     options = candidates(segments, duration, opts["min_seconds"] * 1000, opts["max_seconds"] * 1000)
-    selected, mode = rank_options(task, options, opts["clip_count"], opts["use_llm"])
+    selected, mode = rank_options(task, options, opts["clip_count"], opts["use_llm"], required=production)
     task.check()
     created = []
     with db.connect(write=True) as conn:

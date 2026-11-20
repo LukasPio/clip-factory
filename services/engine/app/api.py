@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, model_validator
 
 from . import db, diagnostics, media, pipeline
-from .config import PROJECTS, Problem
+from .config import PROJECTS, PRODUCTION_ANALYSIS, Problem, production_mode
 from .downloader import authority
 
 router = APIRouter()
@@ -212,7 +212,8 @@ def analyze(identifier: UUID, opts: Analyze, request: Request):
         if not project["metadata"]["has_audio"]:
             raise Problem("NO_AUDIO", "Este vídeo não tem áudio. Crie um corte manual.")
         saved = db.settings(conn)
-        job = jobs.submit(identifier, "analyze", lambda task: pipeline.analyze(task, project, opts.model_dump(), saved))
+        options = PRODUCTION_ANALYSIS if saved["mode"] == "production" else opts.model_dump()
+        job = jobs.submit(identifier, "analyze", lambda task: pipeline.analyze(task, project, options, saved))
     return {"job_id": job}
 
 
@@ -337,9 +338,10 @@ def exports(data: Export, request: Request):
         items = [db.get(conn, "clips", str(item)) for item in dict.fromkeys(data.clip_ids)]
         if any(clip["project_id"] != project["id"] for clip in items) or (data.filename and len(items) != 1):
             raise Problem("INVALID_INPUT", "Selecione cortes do mesmo projeto. Nome personalizado vale para um único corte.")
-        gpu = db.settings(conn)["use_gpu"]
+        settings = db.settings(conn)
+        preset = "1080p" if settings["mode"] == "production" else data.preset
         return {"job_id": jobs.submit(project["id"], "export",
-                                      lambda task: pipeline.export(task, project, items, folder, data.preset, data.filename, gpu))}
+                                      lambda task: pipeline.export(task, project, items, folder, preset, data.filename, settings["use_gpu"]))}
 
 
 @router.get("/jobs")
@@ -373,13 +375,16 @@ def get_settings():
 
 @router.patch("/settings")
 def set_settings(data: Settings, request: Request):
+    if production_mode():
+        raise Problem("SETTINGS_LOCKED", "O modo Produção já está configurado.", 403)
     fields = data.model_dump(exclude_none=True)
     if fields.get("default_export_dir"):
         fields["default_export_dir"] = str(output_directory(fields["default_export_dir"]))
     with idle(request), db.connect(write=True) as conn:
-        result = {**db.settings(conn), **fields}
+        result = {key: value for key, value in db.settings(conn).items() if key != "mode"}
+        result.update(fields)
         conn.execute("INSERT OR REPLACE INTO settings VALUES(1,?)", (json.dumps(result),))
-    return result
+    return {**result, "mode": "test"}
 
 
 Media = Literal["source", "thumbnail", "clip-thumbnail", "preview"]

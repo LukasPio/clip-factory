@@ -174,6 +174,37 @@ def test_hybrid_filters_out_fragments_the_semantic_review_rejected(monkeypatch):
     assert editorial.rank_options(Task(), options, 5, False)[0]
 
 
+def test_production_downloads_the_fixed_local_review_model(monkeypatch):
+    import io
+    import json
+
+    requests = []
+
+    def open(request, *, timeout):
+        if isinstance(request, str):
+            assert request == f"{editorial.OLLAMA}/api/tags"
+            return io.BytesIO(b'{"models":[{"name":"qwen2.5:3b"}]}')
+        assert request.full_url == f"{editorial.OLLAMA}/api/pull"
+        requests.append(json.loads(request.data))
+        return io.BytesIO(b'{"status":"downloading"}\n{"status":"success"}\n')
+
+    class Job(Task):
+        def phase(self, *_args):
+            pass
+
+    monkeypatch.setattr(editorial.LOCAL, "open", open)
+    editorial.prepare_production_review(Job())
+    assert requests == [{"model": editorial.PRODUCTION_QWEN, "stream": True}]
+
+    def offline(*_args, **_kwargs):
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(editorial.LOCAL, "open", offline)
+    with pytest.raises(Problem) as error:
+        editorial.prepare_production_review(Job())
+    assert error.value.code == "OLLAMA_UNAVAILABLE"
+
+
 @pytest.mark.parametrize("url", [
     "http://example.com/x", "https://localhost", "https://foo.internal", "https://user@example.com/video",
     "https://example.com:444/", "https://example.com\\private", "file:///tmp/test",
