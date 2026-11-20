@@ -27,7 +27,7 @@ $python = Initialize-EngineEnvironment -Root $Root -Extra build
 $rustToolchain = Get-WindowsRustToolchain
 $target = $WindowsRustTarget
 $dist = Join-Path $Stage "dist"
-& $python -m PyInstaller --noconfirm --clean --onefile --console --name "clip-engine-$target" --distpath $dist --workpath (Join-Path $Stage "work") --specpath $Stage --collect-all faster_whisper --collect-all ctranslate2 --collect-all onnxruntime --collect-all yt_dlp --collect-data certifi services/engine/entrypoint.py
+& $python -m PyInstaller --noconfirm --clean --onefile --console --name "clip-engine-$target" --distpath $dist --workpath (Join-Path $Stage "work") --specpath $Stage --collect-all faster_whisper --collect-all ctranslate2 --collect-all onnxruntime --collect-all yt_dlp --collect-all yt_dlp_ejs --copy-metadata yt-dlp-ejs --collect-data certifi services/engine/entrypoint.py
 if ($LASTEXITCODE -ne 0) { throw "Falha ao empacotar o motor Python." }
 Copy-Item (Join-Path $dist "clip-engine-$target.exe") $Stage -Force
 

@@ -9,7 +9,7 @@
 | FFmpeg ou FFprobe ausente | Use os dois executáveis de uma mesma distribuição. No desenvolvimento, inclua a pasta no PATH ou use `CLIP_FACTORY_BIN`. |
 | Falha ao gerar legendas | Confira que o diagnóstico identifica libass. Para exportação em CPU, confira também libx264. |
 | A fonte local sumiu | Use **Localizar arquivo** e selecione o mesmo vídeo em sua nova pasta. O app mantém apenas uma referência ao original. |
-| O link falhou | Confirme que o vídeo está publicado, gravado e pode ser baixado com autorização. Se a plataforma oferecer apenas streaming segmentado ou bloquear o acesso, use um arquivo local obtido de forma autorizada. |
+| O link falhou | Confirme se o vídeo ainda está disponível. Para YouTube, confira Node.js ou Deno no PATH. Se a plataforma exigir login, defina `CLIP_FACTORY_COOKIES` antes de iniciar o aplicativo. Se houver limite de acesso, aguarde e tente novamente. |
 | Whisper não inicia | Autorize o primeiro download, verifique espaço livre e teste o perfil CPU com `tiny` ou `base`. |
 | CUDA ou NVENC falhou | A transcrição e exportação tentam CPU automaticamente. Antes de usar a GPU, confira driver e dependências CUDA/cuDNN da versão do CTranslate2 no ambiente alvo. |
 | Abri um MOV/MKV e o player está indisponível | Crie ou abra um corte e use **Atualizar prévia** para gerar um MP4 compatível. |

@@ -123,7 +123,8 @@ def import_project(task, project):
         title = None
     else:
         task.phase("downloading", "Verificando link público")
-        media.disk(folder, MAX_BYTES + 100_000_000)
+        # The downloaded tracks and the merged file can coexist during import.
+        media.disk(folder, 2 * MAX_BYTES + 100_000_000)
         with tempfile.TemporaryDirectory(dir=folder, prefix="download-") as scratch:
             result = worker_result(task, "download", Path(scratch) / "result.json", project["source_uri"], timeout=900)
             path = folder / result["file"]

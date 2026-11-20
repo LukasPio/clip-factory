@@ -33,7 +33,9 @@ A janela inicia e encerra o motor. Para trabalhar apenas na interface em Linux o
 
 O perfil **Teste leve** usa Whisper `base` em CPU/int8. O perfil **Produção GPU** tenta CUDA com `small` e NVENC, com fallback para CPU. O diagnóstico faz um encode real para verificar NVENC e Quick Sync. Para ranking híbrido, instale Ollama separadamente, execute `ollama pull qwen2.5:3b` e habilite o ajuste. O motor envia somente a lista curta de trechos para o Ollama em loopback.
 
-Use **Link de vídeo** somente para conteúdo gravado que você tem autorização para editar. A importação aceita um arquivo HTTPS MP4/WebM simples que o yt-dlp consiga obter. Fontes que exigem login, DRM, live ou streaming segmentado, incluindo sites que oferecem apenas faixas de áudio e vídeo separadas, podem falhar. O limite de download é 2 GB.
+Use **Link de vídeo** para importar um vídeo gravado que você tem autorização para editar. O yt-dlp aceita links do YouTube, clipes e gravações da Twitch, posts do X/Twitter, Reels do Instagram e outros sites compatíveis. O importador baixa arquivos diretos e gravações em HLS ou DASH e usa o FFmpeg para juntar áudio e vídeo quando vêm separados. O limite é de 2 GB por importação. Lives, playlists e conteúdo com DRM não são aceitos.
+
+Para o YouTube, deixe uma versão recente de Node.js ou Deno no PATH do aplicativo. Se a plataforma exigir login, inicie o aplicativo com `CLIP_FACTORY_COOKIES` apontando para um arquivo local de cookies no formato Netscape, exportado da sua própria sessão. Trate esse arquivo como uma credencial.
 
 ## Empacotar no Windows
 
@@ -56,6 +58,15 @@ npm --prefix apps/desktop run build
 ```
 
 Para o Playwright, execute `npx playwright install chromium` de `apps/desktop` e depois `npm run test:e2e` no mesmo diretório. Use `CLIP_FACTORY_PYTHON` para indicar a venv do motor e, opcionalmente, `CLIP_FACTORY_CHROMIUM` para usar Chromium instalado. FFmpeg e FFprobe precisam estar no PATH.
+
+Para testar downloads reais de YouTube, Twitch, X e Instagram no PowerShell, execute:
+
+```powershell
+$env:CLIP_FACTORY_LIVE_DOWNLOADS = '1'
+.\.venv\Scripts\python.exe -m pytest services/engine/tests -m live_download -v
+```
+
+Se um vídeo de referência sair do ar, substitua o link com `CLIP_FACTORY_TEST_YOUTUBE_URL`, `CLIP_FACTORY_TEST_TWITCH_URL`, `CLIP_FACTORY_TEST_TWITTER_URL` ou `CLIP_FACTORY_TEST_INSTAGRAM_URL`.
 
 O teste Whisper usa uma fixture em português e um modelo real no disco. Gere a fixture com `python -m pip install espeakng-loader` e `python fixtures/gerar-fala.py <arquivo.mp4>`. Aponte `CLIP_FACTORY_ASR_FIXTURE` para o vídeo e `CLIP_FACTORY_ASR_MODELS` para uma pasta chamada `models` com o cache `tiny`. O perfil padrão do aplicativo continua sendo `base`.
 

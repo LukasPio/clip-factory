@@ -15,7 +15,7 @@ dependencies = [
   "huggingface-hub==0.36.0",
   "numpy>=1.26,<3",
   "onnxruntime>=1.14,<2",
-  "yt-dlp>=2025.5.22,<2027",
+  "yt-dlp[default]>=2026.10.26,<2027",
 ]
 
 [project.optional-dependencies]
@@ -27,3 +27,4 @@ include = ["app*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["live_download: downloads and probes real videos from external platforms"]
