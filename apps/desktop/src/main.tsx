@@ -9,22 +9,35 @@ import './style.css'
 type JobResponse = { job_id: string }
 const videoFilters = [{ name: 'Vídeos', extensions: ['mp4', 'mov', 'mkv', 'webm'] }]
 
-function useMedia(api: Engine, project: Project | null, kind: 'source' | 'thumbnail') {
+function useMedia(api: Engine, project: Project | null, kind: 'source' | 'thumbnail' | 'preview', clipId?: string) {
   const [url, setUrl] = useState('')
+  const [unavailable, setUnavailable] = useState(false)
   useEffect(() => {
     let current = true
     setUrl('')
+    setUnavailable(false)
     if (!project?.metadata) return
-    const update = () => api.media(project.id, kind).then(value => { if (current) setUrl(value) }).catch(() => {})
+    const update = () => api.media(project.id, kind, clipId).then(value => {
+      if (current) { setUrl(value); setUnavailable(false) }
+    }).catch(() => { if (current) setUnavailable(true) })
     void update()
     const interval = window.setInterval(update, 25 * 60 * 1000)
     return () => { current = false; window.clearInterval(interval) }
-  }, [api, project?.id, project?.updated_at, kind])
-  return url
+  }, [api, project?.id, project?.updated_at, kind, clipId])
+  return { url, unavailable }
+}
+
+function ClipPlayback({ api, project, clip }: { api: Engine; project: Project; clip: Clip }) {
+  const { url, unavailable } = useMedia(api, project, 'preview', clip.id)
+  const [playError, setPlayError] = useState(false)
+  if (unavailable || playError) return <p role="alert">Não foi possível reproduzir a prévia.</p>
+  return url ? <video className="original" src={url} controls autoPlay playsInline onError={() => setPlayError(true)}
+    aria-label={`Reprodução de ${clip.title}`} />
+    : <p role="status">Carregando prévia…</p>
 }
 
 function Thumbnail({ api, item }: { api: Engine; item: Project }) {
-  const url = useMedia(api, item, 'thumbnail')
+  const { url } = useMedia(api, item, 'thumbnail')
   return url ? <img src={url} alt="" /> : <div className="thumb-placeholder" aria-hidden="true">▷</div>
 }
 
@@ -141,6 +154,7 @@ function Studio({ api }: { api: Engine }) {
   const [project, setProject] = useState<Project | null>(null)
   const [clips, setClips] = useState<Clip[]>([])
   const [editing, setEditing] = useState<string | null>(null)
+  const [playing, setPlaying] = useState<string | null>(null)
   const [settings, setSettings] = useState<Settings | null>(null)
   const [view, setView] = useState<'home' | 'import' | 'settings' | 'project'>('home')
   const [job, setJob] = useState<Job | null>(null)
@@ -151,7 +165,7 @@ function Studio({ api }: { api: Engine }) {
   const [filename, setFilename] = useState('')
   const [preset, setPreset] = useState<'1080p' | '720p'>('1080p')
   const [analysis, setAnalysis] = useState({ clip_count: 5, min_seconds: 20, max_seconds: 45, download_model: false })
-  const source = useMedia(api, project, 'source')
+  const { url: source } = useMedia(api, project, 'source')
   const [sourceError, setSourceError] = useState(false)
   const busy = pending || active(job)
   const clip = clips.find(item => item.id === editing)
@@ -177,7 +191,7 @@ function Studio({ api }: { api: Engine }) {
   }, [api, list])
 
   useEffect(() => {
-    setProject(null); setClips([]); setEditing(null); setSourceError(false)
+    setProject(null); setClips([]); setEditing(null); setPlaying(null); setSourceError(false)
     if (!selected) return
     let current = true
     void details(selected).then(({ item, data }) => {
@@ -242,6 +256,11 @@ function Studio({ api }: { api: Engine }) {
       report(problem); throw problem
     } finally { setPending(false) }
   }
+
+  const renderPreview = (item: Clip) => run(async () => {
+    const response = await api.request<JobResponse>(`/clips/${item.id}/preview`, 'POST')
+    await track(response.job_id)
+  })
 
   function showExport(items: Clip[]) {
     setDirectory(settings?.default_export_dir ?? '')
@@ -330,13 +349,15 @@ function Studio({ api }: { api: Engine }) {
               <div className="section-head"><h2>Cortes</h2><div className="project-actions">
                 <button disabled={busy} onClick={() => void run(async () => {
                   const item = await api.request<Clip>(`/projects/${project.id}/clips`, 'POST', {})
-                  setClips(current => [...current, item]); setEditing(item.id)
+                  setClips(current => [...current, item]); setPlaying(null); setEditing(item.id)
                 })}>Criar corte manual</button>
                 <button disabled={busy || !clips.some(item => item.selected)} onClick={() => showExport(clips.filter(item => item.selected))}>Exportar selecionados</button>
               </div></div>
               {clips.length === 0 && <p className="muted">Gere sugestões ou crie um corte manual.</p>}
               <div className="clip-grid">{clips.map(item => <article className="clip-card" key={item.id}>
-                <ClipThumbnail api={api} project={project} clip={item} />
+                {playing === item.id && item.preview_path
+                  ? <ClipPlayback key={item.preview_path} api={api} project={project} clip={item} />
+                  : <ClipThumbnail api={api} project={project} clip={item} />}
                 <label className="checkbox"><input type="checkbox" aria-label={`Selecionar ${item.title}`} checked={Boolean(item.selected)} disabled={busy} onChange={e => {
                   const checked = e.target.checked
                   void run(async () => {
@@ -346,11 +367,19 @@ function Studio({ api }: { api: Engine }) {
                 }} /> Selecionar para exportação</label>
                 <h3>{item.title}</h3><p>{time(item.start_ms)} – {time(item.end_ms)} · {(item.end_ms - item.start_ms) / 1000} s</p>
                 {item.reason && <p>{item.reason}</p>}
-                <button aria-pressed={editing === item.id} onClick={() => setEditing(item.id)}>Editar e reproduzir</button>
+                <div className="project-actions">
+                  {playing === item.id && item.preview_path
+                    ? <button onClick={() => setPlaying(null)}>Fechar prévia</button>
+                    : <button disabled={!item.preview_path && (busy || !project.source_available)} onClick={() => {
+                      setPlaying(item.id)
+                      if (!item.preview_path) void renderPreview(item)
+                    }}>{playing === item.id && busy ? 'Preparando prévia…' : 'Reproduzir corte'}</button>}
+                  <button aria-pressed={editing === item.id} onClick={() => { setPlaying(null); setEditing(item.id) }}>Editar</button>
+                </div>
               </article>)}</div>
             </section>
             {clip && <Editor key={clip.id} clip={clip} project={project} api={api} disabled={busy} save={saveClip}
-              preview={item => run(async () => track((await api.request<JobResponse>(`/clips/${item.id}/preview`, 'POST')).job_id))}
+              preview={renderPreview}
               exportClip={item => showExport([item])} />}
           </>}
       </>}
