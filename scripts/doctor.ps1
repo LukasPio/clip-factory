@@ -1,5 +1,8 @@
 $ErrorActionPreference = "Continue"
-foreach ($name in "py", "node", "npm", "rustc", "cargo", "ffmpeg", "ffprobe") {
+. (Join-Path $PSScriptRoot "windows-common.ps1")
+if (Get-Python311) { Write-Host "Python 3.11 x64 disponivel." }
+else { Write-Warning "Python 3.11 x64 indisponivel." }
+foreach ($name in "node.exe", "npm.cmd", "rustc", "cargo", "ffmpeg", "ffprobe") {
     $command = Get-Command $name -ErrorAction SilentlyContinue
     if ($command) { Write-Host "$name encontrado em $($command.Source)" }
     else { Write-Warning "$name não encontrado no PATH" }

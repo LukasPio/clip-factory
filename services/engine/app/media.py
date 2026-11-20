@@ -1,4 +1,5 @@
 import json
+import logging
 import math
 import os
 import shutil
@@ -75,6 +76,15 @@ def probe(path):
 def disk(path, required):
     if shutil.disk_usage(path).free < required:
         raise Problem("DISK_FULL", "Espaço livre insuficiente. Libere espaço e tente novamente.")
+
+
+def discard_cache(path):
+    if path is not None:
+        try:
+            Path(path).unlink(missing_ok=True)
+        except OSError as error:
+            # A video player can still have the previous preview open on Windows.
+            logging.getLogger("clip-factory").info("cache cleanup skipped: %s", type(error).__name__)
 
 
 def ffmpeg(*args):

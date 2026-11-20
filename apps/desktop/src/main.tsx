@@ -42,7 +42,7 @@ function ClipThumbnail({ api, project, clip }: { api: Engine; project: Project; 
 }
 
 function Import({ api, busy, done, run }: {
-  api: Engine; busy: boolean; done: (p: Project & JobResponse) => void; run: (task: () => Promise<unknown>) => void
+  api: Engine; busy: boolean; done: (p: Project & JobResponse) => Promise<void>; run: (task: () => Promise<unknown>) => void
 }) {
   const [kind, setKind] = useState<'local' | 'url'>('local')
   const [source, setSource] = useState('')
@@ -233,7 +233,7 @@ function Studio({ api }: { api: Engine }) {
     try {
       const data = await api.request<Clip>(`/clips/${draft.id}`, 'PATCH', {
         start_ms: draft.start_ms, end_ms: draft.end_ms, title: draft.title.trim(), center_x: draft.center_x,
-        caption_style: draft.caption_style, selected: Boolean(draft.selected),
+        caption_style: draft.caption_style,
         subtitles: subtitles ? { cues: draft.cues, offset_ms: offset } : undefined,
       })
       setClips(current => current.map(item => item.id === data.id ? data : item))
@@ -251,11 +251,11 @@ function Studio({ api }: { api: Engine }) {
 
   return <div className="layout">
     <aside className="sidebar">
-      <button className="brand" onClick={() => { setView('home'); setSelected(null) }}><span className="mark">▶</span> Clip Factory</button>
+      <button className="brand" disabled={pending} onClick={() => { setView('home'); setSelected(null); setExporting(null) }}><span className="mark">▶</span> Clip Factory</button>
       <nav aria-label="Menu principal">
-        <button aria-current={view === 'home' ? 'page' : undefined} onClick={() => { setSelected(null); setView('home') }}>Projetos</button>
-        <button aria-current={view === 'import' ? 'page' : undefined} onClick={() => setView('import')}>Novo projeto</button>
-        <button aria-current={view === 'settings' ? 'page' : undefined} onClick={() => setView('settings')}>Configurações</button>
+        <button disabled={pending} aria-current={view === 'home' ? 'page' : undefined} onClick={() => { setSelected(null); setView('home'); setExporting(null) }}>Projetos</button>
+        <button disabled={pending} aria-current={view === 'import' ? 'page' : undefined} onClick={() => setView('import')}>Novo projeto</button>
+        <button disabled={pending} aria-current={view === 'settings' ? 'page' : undefined} onClick={() => setView('settings')}>Configurações</button>
       </nav>
       <div className="sidebar-foot"><span /> Motor local conectado</div>
     </aside>
@@ -277,7 +277,7 @@ function Studio({ api }: { api: Engine }) {
           <Thumbnail api={api} item={item} /><strong>{item.title}</strong><span>{item.metadata ? time(item.metadata.duration_ms) : 'Fonte pendente'} · {new Date(item.updated_at).toLocaleDateString('pt-BR')}</span>
         </button>)}</div>
       </>}
-      {view === 'import' && <Import api={api} busy={busy} run={run} done={item => { showProject(item.id); void track(item.job_id, item.id).catch(report) }} />}
+      {view === 'import' && <Import api={api} busy={busy} run={run} done={async item => { showProject(item.id); await track(item.job_id, item.id) }} />}
       {view === 'settings' && settings && <Configuration api={api} settings={settings} setSettings={setSettings} disabled={busy} run={run} />}
       {view === 'project' && project && <>
         <div className="project-actions">
@@ -354,7 +354,7 @@ function Studio({ api }: { api: Engine }) {
               exportClip={item => showExport([item])} />}
           </>}
       </>}
-      {exporting && project && <section className="panel form export-panel" aria-label="Exportar MP4">
+      {view === 'project' && exporting && project && <section className="panel form export-panel" aria-label="Exportar MP4">
         <div className="section-head"><h2>Exportar MP4</h2><button onClick={() => setExporting(null)}>Fechar</button></div>
         {!!(import.meta.env.DEV && !('__TAURI_INTERNALS__' in window)) ? <label>Pasta de saída<input value={directory} onChange={e => setDirectory(e.target.value)} /></label>
           : <><button onClick={() => void run(async () => {

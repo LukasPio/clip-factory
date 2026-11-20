@@ -222,9 +222,8 @@ def analyze(task, project, opts, settings):
         analysis.update(ranking=mode, message=summary)
         conn.execute("UPDATE projects SET analysis=?,updated_at=? WHERE id=?", (json.dumps(analysis), db.now(), identifier))
     for row in obsolete:
-        for cached in (row["thumbnail_path"], row["preview_path"]):
-            if cached:
-                Path(cached).unlink(missing_ok=True)
+        media.discard_cache(row["thumbnail_path"])
+        media.discard_cache(row["preview_path"])
     if created:
         task.phase("thumbnails", "Gerando miniaturas dos cortes")
         for item in created:
@@ -242,8 +241,7 @@ def preview(task, project, clip):
     result = media.render(task, source, project["metadata"], clip, cues, path, "preview")
     with db.connect(write=True) as conn:
         conn.execute("UPDATE clips SET preview_path=? WHERE id=?", (str(path), clip["id"]))
-    if clip["preview_path"]:
-        Path(clip["preview_path"]).unlink(missing_ok=True)
+    media.discard_cache(clip["preview_path"])
     return result
 
 

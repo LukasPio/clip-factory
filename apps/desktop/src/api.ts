@@ -44,7 +44,9 @@ export class Engine {
         ...(data === undefined ? {} : { 'Content-Type': 'application/json' }),
       }, body: data === undefined ? undefined : JSON.stringify(data),
     }).catch(() => { throw new Error('Sem conexão com o motor local. Reabra o aplicativo.') })
-    const result = await response.json()
+    const result = await response.json().catch(() => {
+      throw new Error('O motor local retornou uma resposta inválida. Consulte o diagnóstico e tente novamente.')
+    })
     if (!response.ok) throw new Error(result.error?.message ?? 'A solicitação falhou. Tente novamente.')
     return result as T
   }

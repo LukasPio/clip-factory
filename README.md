@@ -40,7 +40,7 @@ Use **Link de vídeo** somente para conteúdo gravado que você tem autorizaçã
 Prepare uma compilação estática x64 do FFmpeg com `ffmpeg.exe`, `ffprobe.exe`, libass e libx264. Prepare um arquivo de avisos de terceiros da compilação. Os avisos devem registrar versão, origem, licenças e como obter o código-fonte correspondente e os scripts de build. Veja [componentes e distribuição](docs/licencas.md).
 
 ```powershell
-.\scripts\build-windows.ps1 -FFmpegDir C:\ffmpeg\bin -ThirdPartyNotices C:\ffmpeg\NOTICES.txt
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-windows.ps1 -FFmpegDir C:\ffmpeg\bin -ThirdPartyNotices C:\ffmpeg\NOTICES.txt
 ```
 
 O script prepara o motor Python como sidecar e aciona a geração do instalador NSIS. A saída fica sob `apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis`. O fluxo de empacotamento precisa ser validado em Windows limpo antes de distribuir o instalador. Veja as referências do [sidecar](https://v2.tauri.app/develop/sidecar/) e do [instalador](https://v2.tauri.app/distribute/windows-installer/).

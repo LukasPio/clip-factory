@@ -6,7 +6,7 @@ permissions:
   contents: read
 jobs:
   cpu:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -34,17 +34,33 @@ jobs:
           npx playwright install --with-deps chromium
           CLIP_FACTORY_PYTHON="$GITHUB_WORKSPACE/services/engine/.venv/bin/python" npm run test:e2e
   desktop-windows:
-    runs-on: windows-latest
+    runs-on: windows-2025
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          architecture: x64
+      - name: Setup e testes do motor no Windows
+        shell: powershell
+        run: |
+          if (!(Get-Command ffmpeg.exe -ErrorAction SilentlyContinue) -or
+              !(Get-Command ffprobe.exe -ErrorAction SilentlyContinue)) {
+            choco install ffmpeg --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { throw "Falha ao instalar FFmpeg no runner." }
+          }
+          .\scripts\setup-windows.ps1
+          .\scripts\dev.ps1 -PrepareOnly
+          .\.venv\Scripts\python.exe -m pytest services/engine/tests
       - name: Frontend e compilação do shell
         working-directory: apps/desktop
         run: |
-          npm ci
-          npm run test
-          npm run build
-          cargo check --locked --manifest-path src-tauri/Cargo.toml
+          npm.cmd run test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm.cmd run build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo check --locked --manifest-path src-tauri/Cargo.toml --target x86_64-pc-windows-msvc

@@ -61,7 +61,7 @@ def test_auth_and_origin(engine_path):
         assert unauthenticated.get("/media/invalid/source").status_code == 422
 
 
-def test_video_end_to_end(client, tmp_path, engine_path):
+def test_video_end_to_end(client, tmp_path, monkeypatch):
     source = fixture_video(tmp_path / "vídeo original.mp4")
     created = client.post("/projects", json={"source_kind": "local", "source_uri": str(source)})
     assert created.status_code == 201, created.text
@@ -89,6 +89,26 @@ def test_video_end_to_end(client, tmp_path, engine_path):
     result = wait_job(client, preview["job_id"])
     assert result["status"] == "done", result
     assert client.get(f"{root}/media/preview", params={"clip_id": clip["id"]}).status_code == 200
+
+    old_preview = Path(result["result"]["path"])
+    unlink = Path.unlink
+
+    def unlink_while_playing(path, *args, **kwargs):
+        if path == old_preview:
+            raise PermissionError("preview is still open")
+        return unlink(path, *args, **kwargs)
+
+    with monkeypatch.context() as playing:
+        playing.setattr(Path, "unlink", unlink_while_playing)
+        refreshed = wait_job(client, client.post(f"{target}/preview").json()["job_id"])
+        assert refreshed["status"] == "done", refreshed
+
+    old_preview = Path(refreshed["result"]["path"])
+    with monkeypatch.context() as playing:
+        playing.setattr(Path, "unlink", unlink_while_playing)
+        edited = client.patch(target, json={"center_x": .6})
+        assert edited.status_code == 200, edited.text
+        assert edited.json()["preview_path"] is None
 
     payload = {"project_id": identifier, "clip_ids": [clip["id"]], "output_dir": str(tmp_path), "preset": "1080p"}
     export = wait_job(client, client.post("/exports", json=payload).json()["job_id"])

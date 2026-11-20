@@ -23,13 +23,6 @@ export default function Editor({ clip, project, api, disabled, save, preview, ex
   const [saved, setSaved] = useState(false)
 
   useEffect(() => {
-    setDraft(clip)
-    setChanged(false)
-    setCueChanged(false)
-    setOffset(0)
-  }, [clip.id, clip.updated_at])
-
-  useEffect(() => {
     let valid = true
     setPreviewUrl('')
     if (!clip.preview_path) return

@@ -1,7 +1,7 @@
 param([switch]$Launch)
 
 $ErrorActionPreference = "Stop"
-$rustTarget = "x86_64-pc-windows-msvc"
+. (Join-Path $PSScriptRoot "windows-common.ps1")
 $cppWorkload = "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended --passive --norestart"
 
 if ($env:PROCESSOR_ARCHITECTURE -ne "AMD64") {
@@ -13,6 +13,8 @@ function Update-SessionPath {
     $paths = @(
         [Environment]::GetEnvironmentVariable("Path", "Machine")
         [Environment]::GetEnvironmentVariable("Path", "User")
+        (Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Links")
+        (Join-Path $env:ProgramFiles "WinGet\Links")
         $env:Path
     )
     $env:Path = (($paths -split ";" | Where-Object { $_ } | Select-Object -Unique) -join ";")
@@ -46,7 +48,7 @@ function Add-RustupToSessionPath {
 function Install-Rustup {
     Write-Host "Baixando o Rustup oficial para Windows x64..."
     $ProgressPreference = "SilentlyContinue"
-    $url = "https://static.rust-lang.org/rustup/dist/$rustTarget/rustup-init.exe"
+    $url = "https://static.rust-lang.org/rustup/dist/$WindowsRustTarget/rustup-init.exe"
     $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) ("clip-factory-rustup-" + [guid]::NewGuid())
     $null = New-Item -ItemType Directory -Path $tempDir
 
@@ -62,26 +64,13 @@ function Install-Rustup {
         }
 
         Write-Host "Instalando Rust stable com MSVC..."
-        & $installer -y --default-host $rustTarget --default-toolchain stable --profile minimal
+        & $installer -y --default-host $WindowsRustTarget --default-toolchain stable --profile minimal
         if ($LASTEXITCODE -ne 0) {
             throw "rustup-init.exe falhou (codigo $LASTEXITCODE). Confira a mensagem do instalador acima."
         }
     } finally {
         Remove-Item -LiteralPath $tempDir -Recurse -Force -ErrorAction SilentlyContinue
     }
-}
-
-function Get-ActiveRustToolchain {
-    $ErrorActionPreference = "Continue"
-    $toolchain = & rustup.exe show active-toolchain 2>$null
-    if ($LASTEXITCODE -eq 0) { return $toolchain }
-}
-
-function Test-Python311 {
-    if (!(Get-Command py.exe -CommandType Application -ErrorAction SilentlyContinue)) { return $false }
-    $ErrorActionPreference = "Continue"
-    & py.exe -3.11 -c "import struct, sys; sys.exit(0 if sys.version_info[:2] == (3, 11) and struct.calcsize('P') == 8 else 1)" 2>$null
-    return $LASTEXITCODE -eq 0
 }
 
 function Test-Node {
@@ -137,8 +126,8 @@ function Test-CppBuildTools {
 
 Update-SessionPath
 
-if (!(Test-Python311)) { Install-WinGetPackage "Python.Python.3.11" }
-if (!(Test-Python311)) { throw "Python 3.11 x64 indisponivel. Verifique o comando py -3.11 em um novo PowerShell." }
+if (!(Get-Python311)) { Install-WinGetPackage "Python.Python.3.11" }
+if (!(Get-Python311)) { throw "Python 3.11 x64 indisponivel. Verifique o comando py -3.11-64 em um novo PowerShell." }
 
 if (!(Test-Node)) { Install-WinGetPackage "OpenJS.NodeJS.LTS" @("--installer-type", "wix") }
 if (!(Test-Node)) { throw "Node.js 22+ ou npm indisponivel. Verifique node --version e npm.cmd --version em um novo PowerShell." }
@@ -184,13 +173,7 @@ if (!(Get-Command rustup.exe -CommandType Application -ErrorAction SilentlyConti
     throw "Rustup indisponivel. Abra um novo PowerShell e rode este script novamente."
 }
 
-$activeToolchain = Get-ActiveRustToolchain
-if (!$activeToolchain) {
-    & rustup.exe default "stable-$rustTarget"
-    if ($LASTEXITCODE -ne 0) { throw "Falha ao instalar Rust stable para $rustTarget. Confira a mensagem do rustup acima." }
-}
-& rustup.exe target add $rustTarget
-if ($LASTEXITCODE -ne 0) { throw "Falha ao preparar Rust para $rustTarget. Confira a mensagem do rustup acima." }
+$null = Get-WindowsRustToolchain
 
 Write-Host "Dependencias do Windows prontas."
 if ($Launch) {

@@ -171,6 +171,7 @@ def project_patch(identifier: UUID, data: ProjectPatch, request: Request):
             original = item["metadata"]
             if original and any(metadata[k] != original[k] for k in ("duration_ms", "size", "width", "height", "has_audio")):
                 raise Problem("INVALID_SOURCE", "Selecione o mesmo vídeo original para preservar a sincronia dos cortes.")
+            (PROJECTS / identifier).mkdir(exist_ok=True)
             conn.execute("UPDATE projects SET source_uri=?,source_path=?,metadata=? WHERE id=?",
                          (str(path), str(path), json.dumps(metadata), identifier))
         if data.title is not None:
@@ -276,8 +277,6 @@ def apply_edit(conn, clip, fields, subtitles):
     if cues is not None:
         db.write_cues(conn, clip["id"], cues)
     if changed_times or subtitles is not None or any(fields.get(k, clip[k]) != clip[k] for k in ("center_x", "caption_style")):
-        if clip["preview_path"]:
-            Path(clip["preview_path"]).unlink(missing_ok=True)
         fields["preview_path"] = None
     fields.update(updated_at=db.now(), edited=True)
     assignments = ", ".join(f"{key}=?" for key in fields)
@@ -285,17 +284,24 @@ def apply_edit(conn, clip, fields, subtitles):
     return decorate_clip(conn, db.get(conn, "clips", clip["id"]))
 
 
-@router.patch("/clips/{identifier}")
-def clip_patch(identifier: UUID, data: Edit, request: Request):
+def edit_clip(identifier, fields, subtitles, request):
     with idle(request), db.connect(write=True) as conn:
         clip = db.get(conn, "clips", str(identifier))
-        return apply_edit(conn, clip, data.model_dump(exclude_none=True, exclude={"subtitles"}), data.subtitles)
+        updated = apply_edit(conn, clip, fields, subtitles)
+    if updated["preview_path"] != clip["preview_path"]:
+        media.discard_cache(clip["preview_path"])
+    return updated
+
+
+@router.patch("/clips/{identifier}")
+def clip_patch(identifier: UUID, data: Edit, request: Request):
+    fields = data.model_dump(exclude_none=True, exclude={"subtitles"})
+    return edit_clip(identifier, fields, data.subtitles, request)
 
 
 @router.put("/clips/{identifier}/subtitles")
 def subtitles(identifier: UUID, data: CueEdit, request: Request):
-    with idle(request), db.connect(write=True) as conn:
-        return apply_edit(conn, db.get(conn, "clips", str(identifier)), {}, data)
+    return edit_clip(identifier, {}, data, request)
 
 
 @router.post("/clips/{identifier}/preview", status_code=202)
