@@ -14,7 +14,7 @@ export type Clip = {
 export type ExportFile = { path: string; size: number; duration_ms: number; encoder: string }
 export type Job = {
   id: string; project_id: string; kind: string; status: 'queued' | 'running' | 'failed' | 'cancelled' | 'done';
-  phase: string; progress: number | null; message: string; error_code?: string | null; result: { files?: ExportFile[] } | null
+  phase: string; progress: number | null; message: string; result: { files?: ExportFile[] } | null
 }
 export type Settings = {
   mode: 'production' | 'test';

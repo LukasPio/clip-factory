@@ -1,6 +1,6 @@
 # Clip Factory
 
-Editor desktop local para transformar vídeos gravados em cortes verticais. O motor usa FFmpeg para ler e renderizar vídeo e faster-whisper para transcrever a fala. O aplicativo usa CPU por padrão e pode gerar sugestões com heurísticas, sem conta, CUDA ou Ollama.
+Editor desktop local para transformar vídeos gravados em cortes verticais. O motor usa FFmpeg para ler e renderizar vídeo e faster-whisper para transcrever a fala. O modo Produção prepara o Ollama automaticamente para revisar os cortes. O modo Teste também pode gerar sugestões com heurísticas em CPU.
 
 ## Desenvolver no Windows x64
 
@@ -33,13 +33,13 @@ A janela inicia e encerra o motor. Para trabalhar apenas na interface em Linux o
 
 O app abre em **Produção**. Importe um vídeo e clique em **Gerar cortes automáticos**. A análise usa Whisper `medium` e revisa as sugestões localmente com Ollama e Qwen `7B`. O primeiro uso baixa os modelos. Se a revisão falhar, a análise informa o erro e mantém as sugestões anteriores. A exportação usa 1080 × 1920. CUDA e NVENC são usados quando disponíveis, com fallback para CPU.
 
-O preparo do Windows instala Ollama para Produção. Se você recebeu apenas o aplicativo instalado, abra o [instalador do Ollama para Windows](https://ollama.com/download/windows) uma vez e mantenha Ollama aberto em segundo plano. O Qwen `7B` ocupa cerca de 4,7 GB, além do espaço do Ollama e do Whisper.
+Para quem usa o aplicativo, basta instalar o Clip Factory para Windows x64. O instalador inclui o motor Python, FFmpeg, FFprobe, Node.js e o runtime redistribuível do C++. O WebView2 é instalado automaticamente se estiver ausente. Na primeira análise, o Clip Factory reutiliza o Ollama local ou prepara uma versão portátil e baixa os modelos necessários. Mantenha a internet disponível e reserve cerca de 15 GB livres para essa preparação. Se a conexão cair, clique em **Gerar cortes automáticos** novamente.
 
 Para acessar os ajustes avançados durante o desenvolvimento, defina `$env:CLIP_FACTORY_MODE = 'test'` antes de executar o script de desenvolvimento. O modo Teste começa com Whisper `base` em CPU e a revisão com Ollama `3B` é opcional. Remova a variável para voltar a Produção. O aplicativo empacotado inicia sempre em Produção.
 
 Use **Link de vídeo** para importar um vídeo gravado que você tem autorização para editar. O yt-dlp aceita links do YouTube, clipes e gravações da Twitch, posts do X/Twitter, Reels do Instagram e outros sites compatíveis. O importador baixa arquivos diretos e gravações em HLS ou DASH e usa o FFmpeg para juntar áudio e vídeo quando vêm separados. O limite é de 2 GB por importação. Lives, playlists e conteúdo com DRM não são aceitos.
 
-Para o YouTube, deixe uma versão recente de Node.js ou Deno no PATH do aplicativo. Se a plataforma exigir login, inicie o aplicativo com `CLIP_FACTORY_COOKIES` apontando para um arquivo local de cookies no formato Netscape, exportado da sua própria sessão. Trate esse arquivo como uma credencial.
+O instalador inclui o Node.js para o YouTube. Em desenvolvimento manual, use Node.js ou Deno no PATH. Se a plataforma exigir login, inicie o aplicativo com `CLIP_FACTORY_COOKIES` apontando para um arquivo local de cookies no formato Netscape, exportado da sua própria sessão. Trate esse arquivo como uma credencial.
 
 ## Empacotar no Windows
 

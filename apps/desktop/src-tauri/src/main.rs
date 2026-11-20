@@ -57,6 +57,7 @@ fn launch(
         command.creation_flags(0x08000000);
         if !cfg!(debug_assertions) {
             command.env("CLIP_FACTORY_BIN", resources.join("media-tools"));
+            command.env("CLIP_FACTORY_NODE", resources.join("node.exe"));
         }
     }
     let mut child = command

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { createRoot } from 'react-dom/client'
 import { open } from '@tauri-apps/plugin-dialog'
-import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener'
+import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import Editor from './Editor'
 import { active, connect, Engine, size, time, type Clip, type Diagnostics, type Job, type Project, type Settings } from './api'
 import './style.css'
@@ -287,9 +287,6 @@ function Studio({ api }: { api: Engine }) {
           {active(job) ? <button onClick={() => void run(() => api.request(`/jobs/${job.id}/cancel`, 'POST'))}>Cancelar</button>
             : <button onClick={() => setJob(null)}>Fechar aviso</button>}</div>
         {active(job) && <progress aria-label="Progresso da etapa" max={1} value={job.progress ?? undefined} />}
-        {job.error_code === 'OLLAMA_UNAVAILABLE' && <button onClick={() => void run(() => openUrl('https://ollama.com/download/windows'))}>
-          Baixar Ollama para Windows
-        </button>}
         {job.result?.files?.map(file => <p className="export-result" key={file.path}><span className="path">{file.path} · {size(file.size)} · {time(file.duration_ms)}</span>
           <button onClick={() => void run(() => revealItemInDir(file.path))}>Abrir pasta</button></p>)}
       </section>}
@@ -344,7 +341,7 @@ function Studio({ api }: { api: Engine }) {
                     </div>
                     <label className="checkbox"><input type="checkbox" checked={analysis.download_model} onChange={e => setAnalysis({ ...analysis, download_model: e.target.checked })} />
                       Permitir download do modelo Whisper {settings.whisper_model}, se necessário.</label></>
-                      : <p className="muted">A primeira análise pode baixar os modelos de voz e revisão.</p>}
+                      : <p className="muted">No primeiro uso, o app prepara e baixa automaticamente o que precisa para analisar.</p>}
                     <button className="primary" onClick={() => void run(async () => track((await api.request<JobResponse>(`/projects/${project.id}/analyze`, 'POST', {
                       ...(settings?.mode === 'test' ? { ...analysis, language: settings.language, use_llm: settings.use_llm } : {}),
                     })).job_id))}>Gerar cortes automáticos</button>

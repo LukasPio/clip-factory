@@ -14,6 +14,24 @@ from .db import connect, now, uid
 log = logging.getLogger("clip-factory")
 
 
+def terminate_process(proc, options):
+    if proc.poll() is not None:
+        return
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/F", "/T", "/PID", str(proc.pid)], **options,
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+    else:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    if proc.poll() is None:
+        proc.kill()
+    proc.wait()
+
+
 class Jobs:
     def __init__(self):
         self.pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="engine")
@@ -119,20 +137,7 @@ class Task:
                     if on_line:
                         self._progress(reader, on_line)
                 finally:
-                    if proc.poll() is None:
-                        if os.name == "nt":
-                            subprocess.run(
-                                ["taskkill", "/F", "/T", "/PID", str(proc.pid)], **options,
-                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                            )
-                        else:
-                            try:
-                                os.killpg(proc.pid, signal.SIGKILL)
-                            except ProcessLookupError:
-                                pass
-                        if proc.poll() is None:
-                            proc.kill()
-                        proc.wait()
+                    terminate_process(proc, options)
                 self.check()
                 if proc.returncode:
                     raise Problem(code, message)

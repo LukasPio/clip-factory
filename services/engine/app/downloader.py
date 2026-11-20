@@ -167,6 +167,7 @@ def source_error(error):
 def download(url, folder, report):
     public_addresses(authority(url))
     ffmpeg = binary("ffmpeg")
+    bundled_node = os.environ.get("CLIP_FACTORY_NODE")
     with GuardedProxy() as proxy:
         thread = Thread(target=proxy.serve_forever, daemon=True)
         thread.start()
@@ -192,7 +193,7 @@ def download(url, folder, report):
                 "hls_prefer_native": True, "external_downloader": {"default": "native"},
                 "fragment_retries": 3, "skip_unavailable_fragments": False,
                 "concurrent_fragment_downloads": 1,
-                "js_runtimes": {"node": {}, "deno": {}},
+                "js_runtimes": {"node": {"path": bundled_node}} if bundled_node else {"node": {}, "deno": {}},
                 "outtmpl": str(folder / "source.%(ext)s"),
                 "fixup": "detect_or_warn", "max_filesize": MAX_BYTES, "socket_timeout": 20,
                 "retries": 3, "progress_hooks": [progress], "cachedir": False,

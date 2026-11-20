@@ -1,6 +1,7 @@
 {
   "bundle": {
     "externalBin": ["binaries/clip-engine"],
-    "resources": {"binaries/media-tools/": "media-tools/"}
+    "resources": {"binaries/media-tools/": "media-tools/", "binaries/runtime/": "./"},
+    "windows": {"webviewInstallMode": {"type": "embedBootstrapper", "silent": true}}
   }
 }

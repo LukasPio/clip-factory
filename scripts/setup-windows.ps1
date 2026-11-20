@@ -135,11 +135,6 @@ if (!(Test-Node)) { throw "Node.js 22+ ou npm indisponivel. Verifique node --ver
 if (!(Test-FFmpeg)) { Install-WinGetPackage "Gyan.FFmpeg" }
 if (!(Test-FFmpeg)) { throw "FFmpeg/FFprobe indisponiveis ou sem libass/libx264. Confira qual executavel aparece em Get-Command ffmpeg.exe." }
 
-if ($env:CLIP_FACTORY_MODE -ne 'test' -and !(Get-Command ollama.exe -CommandType Application -ErrorAction SilentlyContinue) -and
-    !(Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'Programs\Ollama\ollama.exe') -PathType Leaf)) {
-    Install-WinGetPackage "Ollama.Ollama"
-}
-
 if (!(Test-WebView2)) { Install-WinGetPackage "Microsoft.EdgeWebView2Runtime" }
 if (!(Test-WebView2)) { throw "WebView2 Runtime indisponivel. Conclua o instalador do runtime e tente novamente." }
 

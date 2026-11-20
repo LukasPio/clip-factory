@@ -256,13 +256,17 @@ def test_cancel_running_subprocess(client, tmp_path):
 
 @pytest.mark.parametrize("mode", ["test", "production"])
 def test_analysis_reuses_transcript_and_keeps_the_conclusion_in_the_preview(client, tmp_path, monkeypatch, mode):
+    from contextlib import nullcontext
     from app import editorial
 
     monkeypatch.setenv("CLIP_FACTORY_MODE", mode)
     prepared, reviewed = [], []
-    monkeypatch.setattr(pipeline, "prepare_production_review", lambda task: prepared.append(task.id))
+    endpoint = "http://127.0.0.1:41212"
+    monkeypatch.setattr(pipeline, "ollama_server", lambda _task: nullcontext(endpoint))
+    monkeypatch.setattr(pipeline, "prepare_production_review", lambda task, address: prepared.append(address))
 
-    def review(batch, *, model, **_kwargs):
+    def review(batch, *, model, endpoint, **_kwargs):
+        assert endpoint in prepared
         reviewed.append(model)
         return {item["candidate_id"]: editorial.Rank(candidate_id=item["candidate_id"], usable=True, score=90,
                 title="Como o café recuperou os empregos", reason="Mostra o problema e o desfecho.") for item in batch}
@@ -298,7 +302,7 @@ def test_analysis_reuses_transcript_and_keeps_the_conclusion_in_the_preview(clie
     assert "recuperamos todos os empregos." in " ".join(clip["cues"][-1]["text"].split())
     assert all("jogo" not in cue["text"] for cue in clip["cues"])
     if mode == "production":
-        assert prepared and reviewed == [editorial.PRODUCTION_QWEN]
+        assert prepared == [endpoint] and reviewed == [editorial.PRODUCTION_QWEN]
         assert client.patch("/settings", json={"use_llm": False}).status_code == 403
         assert result["result"]["ranking"] == "hybrid"
 

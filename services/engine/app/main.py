@@ -33,7 +33,7 @@ def create_app(token, host):
     async def lifespan(app):
         initialize()
         PROJECTS.mkdir(exist_ok=True)
-        for pattern in ("process-*", "projects/*/analysis-*", "projects/*/download-*"):
+        for pattern in ("process-*", "runtime-download-*", "projects/*/analysis-*", "projects/*/download-*"):
             for path in DATA.glob(pattern):
                 if path.is_dir() and not path.is_symlink() and path.resolve().is_relative_to(DATA):
                     shutil.rmtree(path, ignore_errors=True)

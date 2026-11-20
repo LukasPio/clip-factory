@@ -4,20 +4,14 @@ import textwrap
 import unicodedata
 from collections import Counter
 from dataclasses import dataclass
-from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
+from urllib.request import Request
 
 from pydantic import BaseModel, Field, TypeAdapter
 
 from .config import Problem
 from .db import uid
+from .dependencies import LOCAL, OLLAMA
 
-class NoRedirect(HTTPRedirectHandler):
-    def redirect_request(self, *_args, **_kwargs):
-        return None
-
-
-LOCAL = build_opener(ProxyHandler({}), NoRedirect())
-OLLAMA = "http://127.0.0.1:11434"
 QWEN = "qwen2.5:3b"
 PRODUCTION_QWEN = "qwen2.5:7b"
 
@@ -352,18 +346,17 @@ class Rank(BaseModel):
     reason: str = Field(min_length=1, max_length=240)
 
 
-def prepare_production_review(task):
-    task.phase("preparing_review", "Verificando revisão de cortes")
+def prepare_production_review(task, endpoint=OLLAMA):
     try:
-        with LOCAL.open(f"{OLLAMA}/api/tags", timeout=3) as response:
+        with LOCAL.open(f"{endpoint}/api/tags", timeout=3) as response:
             models = json.loads(response.read(200_000))["models"]
     except (OSError, ValueError, KeyError) as error:
-        raise Problem("OLLAMA_UNAVAILABLE", "Abra o Ollama no menu Iniciar e clique em Gerar cortes novamente.") from error
+        raise Problem("OLLAMA_UNAVAILABLE", "A revisão local não respondeu. Tente gerar os cortes novamente.") from error
     if any(model.get("name") == PRODUCTION_QWEN for model in models):
         return
 
     task.phase("preparing_review", "Baixando o modelo de revisão pela primeira vez")
-    request = Request(f"{OLLAMA}/api/pull", json.dumps({"model": PRODUCTION_QWEN, "stream": True}).encode(),
+    request = Request(f"{endpoint}/api/pull", json.dumps({"model": PRODUCTION_QWEN, "stream": True}).encode(),
                       {"Content-Type": "application/json"})
     try:
         with LOCAL.open(request, timeout=60) as response:
@@ -379,7 +372,7 @@ def prepare_production_review(task):
     raise Problem("OLLAMA_MODEL_FAILED", "O download do modelo de revisão não terminou. Confira a internet e o espaço em disco e tente novamente.")
 
 
-def ollama_ranks(items, *, model=QWEN, keep_alive=0, timeout=30):
+def ollama_ranks(items, *, endpoint=OLLAMA, model=QWEN, keep_alive=0, timeout=30):
     passages = [{"candidate_id": item["candidate_id"], "transcript": item["transcript"],
                  "before": item["before"][-700:], "after": item["after"][:700]} for item in items]
     payload = {
@@ -397,7 +390,7 @@ def ollama_ranks(items, *, model=QWEN, keep_alive=0, timeout=30):
         "prompt": json.dumps(passages, ensure_ascii=False), "format": TypeAdapter(list[Rank]).json_schema(),
         "options": {"temperature": 0, "num_ctx": 8192},
     }
-    request = Request(f"{OLLAMA}/api/generate", json.dumps(payload).encode(), {"Content-Type": "application/json"})
+    request = Request(f"{endpoint}/api/generate", json.dumps(payload).encode(), {"Content-Type": "application/json"})
     with LOCAL.open(request, timeout=timeout) as response:
         data = json.loads(response.read(250_000))
         ranks = TypeAdapter(list[Rank]).validate_json(data["response"])
@@ -444,7 +437,7 @@ def production_shortlist(options, shortlist):
     return shortlist + alternatives
 
 
-def rank_options(task, options, count, use_llm, *, required=False):
+def rank_options(task, options, count, use_llm, *, required=False, endpoint=OLLAMA):
     if not options and required:
         return [], "hybrid"
     if not options or (not use_llm and not required):
@@ -461,7 +454,7 @@ def rank_options(task, options, count, use_llm, *, required=False):
             if required:
                 task.update(message="Revisando quais cortes fazem sentido sozinhos", progress=offset / len(shortlist))
                 keep_alive = "2m" if offset + 4 < len(shortlist) else 0
-                ranks = ollama_ranks(batch, model=PRODUCTION_QWEN, keep_alive=keep_alive, timeout=180)
+                ranks = ollama_ranks(batch, endpoint=endpoint, model=PRODUCTION_QWEN, keep_alive=keep_alive, timeout=180)
             else:
                 ranks = ollama_ranks(batch)
             for item in batch:
@@ -471,7 +464,7 @@ def rank_options(task, options, count, use_llm, *, required=False):
                                      "title": rank.title, "reason": rank.reason})
     except (OSError, ValueError, KeyError, TypeError) as error:
         if required:
-            raise Problem("OLLAMA_REVIEW_FAILED", "A revisão dos cortes foi interrompida. Confira se o Ollama continua aberto e tente novamente.") from error
+            raise Problem("OLLAMA_REVIEW_FAILED", "A revisão local dos cortes foi interrompida. Tente gerar os cortes novamente.") from error
         return distinct_options(options, count), "heuristic_fallback"
     return distinct_options(reviewed, count), "hybrid"
 
