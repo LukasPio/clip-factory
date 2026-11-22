@@ -1,4 +1,4 @@
-param([switch]$Launch)
+param([switch]$Launch, [switch]$PrepareModels)
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "windows-common.ps1")
@@ -176,8 +176,12 @@ if (!(Get-Command rustup.exe -CommandType Application -ErrorAction SilentlyConti
 $null = Get-WindowsRustToolchain
 
 Write-Host "Dependencias do Windows prontas."
-if ($Launch) {
-    & (Join-Path $PSScriptRoot "dev.ps1")
+if ($Launch -or $PrepareModels) {
+    & (Join-Path $PSScriptRoot "dev.ps1") -PrepareModels:$PrepareModels -PrepareOnly:(!$Launch)
+    if (!$Launch) {
+        $dev = Join-Path $PSScriptRoot "dev.ps1"
+        Write-Host ('Para abrir o Clip Factory, execute: powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $dev)
+    }
 } else {
     Write-Host "Na raiz do Clip Factory, execute: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\dev.ps1"
 }

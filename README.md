@@ -2,6 +2,22 @@
 
 Editor desktop local para transformar vídeos gravados em cortes verticais. O motor usa FFmpeg para ler e renderizar vídeo e faster-whisper para transcrever a fala. O modo Produção prepara o Ollama automaticamente para revisar os cortes. O modo Teste também pode gerar sugestões com heurísticas em CPU.
 
+## Instalar pelo GitHub no Windows x64
+
+Execute este bloco no Windows PowerShell de 64 bits em um computador com WinGet (Instalador de Aplicativo do Windows).
+
+```powershell
+& {
+    $script = Join-Path $env:TEMP 'clip-factory-install-windows.ps1'
+    Invoke-WebRequest -UseBasicParsing -Uri 'https://raw.githubusercontent.com/LukasPio/clip-factory/main/scripts/install-windows.ps1' -OutFile $script -ErrorAction Stop
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script -Launch
+}
+```
+
+O script baixa o código para `%LOCALAPPDATA%\ClipFactory\source`, instala as dependências do Windows e do projeto e prepara o Ollama local, o Qwen 2.5 7B e o Whisper. Ele reutiliza o Ollama local quando disponível e prepara a versão portátil quando necessário. Com `-Launch`, o script compila e abre o aplicativo a partir do código-fonte. Sem essa opção, ele prepara o ambiente e mostra o comando para abrir o app mais tarde.
+
+Mantenha a internet disponível e espaço livre para ferramentas de compilação e modelos. Aceite as solicitações do Windows durante a instalação. Se algum instalador pedir uma reinicialização ou se a conexão cair, execute o mesmo comando novamente. O script reutiliza a cópia já baixada. Para escolher outro destino, passe `-InstallDir 'C:\caminho\ClipFactory'` ao script.
+
 ## Desenvolver no Windows x64
 
 1. Baixe e extraia o ZIP do repositório pelo GitHub (**Code → Download ZIP**).
@@ -31,7 +47,7 @@ A janela inicia e encerra o motor. Para trabalhar apenas na interface em Linux o
 3. Abra uma sugestão ou crie um corte manual. Ajuste intervalo, enquadramento e legendas. Gere a prévia vertical para ouvir a fala e conferir os tempos.
 4. Exporte um corte ou a seleção. As opções são 1080 × 1920 e 720 × 1280, ambas com 30 FPS. Para áudio presente, a saída contém AAC.
 
-O app abre em **Produção**. Importe um vídeo e clique em **Gerar cortes automáticos**. A análise usa Whisper `medium` e revisa as sugestões localmente com Ollama e Qwen `7B`. O primeiro uso baixa os modelos. Se a revisão falhar, a análise informa o erro e mantém as sugestões anteriores. A exportação usa 1080 × 1920. CUDA e NVENC são usados quando disponíveis, com fallback para CPU.
+O app abre em **Produção**. Importe um vídeo e clique em **Gerar cortes automáticos**. A análise usa Whisper `medium` e revisa as sugestões localmente com Ollama e Qwen `7B`. Se os modelos ainda estiverem ausentes, o aplicativo os baixa no primeiro uso. Se a revisão falhar, a análise informa o erro e mantém as sugestões anteriores. A exportação usa 1080 × 1920. CUDA e NVENC são usados quando disponíveis, com fallback para CPU.
 
 Para quem usa o aplicativo, basta instalar o Clip Factory para Windows x64. O instalador inclui o motor Python, FFmpeg, FFprobe, Node.js e o runtime redistribuível do C++. O WebView2 é instalado automaticamente se estiver ausente. Na primeira análise, o Clip Factory reutiliza o Ollama local ou prepara uma versão portátil e baixa os modelos necessários. Mantenha a internet disponível e reserve cerca de 15 GB livres para essa preparação. Se a conexão cair, clique em **Gerar cortes automáticos** novamente.
 

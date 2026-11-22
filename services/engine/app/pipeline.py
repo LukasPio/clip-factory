@@ -41,13 +41,8 @@ def worker_main(kind, args):
     output.write_text(json.dumps(result), encoding="utf-8")
 
 
-def transcribe(audio, model_name, language, use_gpu, consent, duration, *, report):
+def prepare_whisper_model(model_name, *, report, consent="1"):
     os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
-    import numpy as np
-    import onnxruntime
-
-    onnxruntime.disable_telemetry_events()
-    from faster_whisper import WhisperModel
     from huggingface_hub import snapshot_download
 
     repo = f"Systran/faster-whisper-{model_name}"
@@ -62,6 +57,18 @@ def transcribe(audio, model_name, language, use_gpu, consent, duration, *, repor
             snapshot_download(repo, local_dir=cache, token=False, allow_patterns=["config.json", "model.bin", "tokenizer.json", "vocabulary.*", "preprocessor_config.json"])
         except Exception as error:
             raise Problem("MODEL_MISSING", "Download do modelo falhou. Verifique a conexão e tente novamente.") from error
+    return cache
+
+
+def transcribe(audio, model_name, language, use_gpu, consent, duration, *, report):
+    os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
+    import numpy as np
+    import onnxruntime
+
+    onnxruntime.disable_telemetry_events()
+    from faster_whisper import WhisperModel
+
+    cache = prepare_whisper_model(model_name, report=report, consent=consent)
     with wave.open(audio, "rb") as wav:
         pcm = np.frombuffer(wav.readframes(wav.getnframes()), dtype="<i2").astype(np.float32)
         pcm /= 32768

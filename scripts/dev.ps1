@@ -1,4 +1,4 @@
-param([switch]$PrepareOnly)
+param([switch]$PrepareOnly, [switch]$PrepareModels)
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "windows-common.ps1")
@@ -10,6 +10,17 @@ Push-Location (Join-Path $Root "apps/desktop")
 try {
     npm.cmd ci
     if ($LASTEXITCODE -ne 0) { throw "Falha ao instalar dependencias da interface." }
+    if ($PrepareModels) {
+        $tauriConfig = Get-Content -LiteralPath "src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json
+        $previousData = $env:CLIP_FACTORY_DATA
+        try {
+            $env:CLIP_FACTORY_DATA = Join-Path ([Environment]::GetFolderPath("LocalApplicationData")) $tauriConfig.identifier
+            & $python -m app.prepare_models
+            if ($LASTEXITCODE -ne 0) { throw "Falha ao preparar Ollama e os modelos. Confira a mensagem acima e rode o instalador novamente." }
+        } finally {
+            $env:CLIP_FACTORY_DATA = $previousData
+        }
+    }
     if ($PrepareOnly) { return }
 
     $previousPython = $env:CLIP_FACTORY_PYTHON
