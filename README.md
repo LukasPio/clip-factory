@@ -14,9 +14,11 @@ Execute este bloco no Windows PowerShell de 64 bits em um computador com WinGet 
 }
 ```
 
-O script baixa o código para `%LOCALAPPDATA%\ClipFactory\source`, instala as dependências do Windows e do projeto e prepara o Ollama local, o Qwen 2.5 7B e o Whisper. Ele reutiliza o Ollama local quando disponível e prepara a versão portátil quando necessário. Com `-Launch`, o script compila e abre o aplicativo a partir do código-fonte. Sem essa opção, ele prepara o ambiente e mostra o comando para abrir o app mais tarde.
+O script baixa a revisão atual da `main` em `%LOCALAPPDATA%\ClipFactory\source`, instala as dependências e prepara o Ollama, o Qwen 2.5 7B e o Whisper. Em seguida, compila o aplicativo e cria o atalho **Clip Factory** no menu Iniciar. A opção `-Launch` também abre o aplicativo ao terminar.
 
-Mantenha a internet disponível e espaço livre para ferramentas de compilação e modelos. Aceite as solicitações do Windows durante a instalação. Se algum instalador pedir uma reinicialização ou se a conexão cair, execute o mesmo comando novamente. O script reutiliza a cópia já baixada. Para escolher outro destino, passe `-InstallDir 'C:\caminho\ClipFactory'` ao script.
+Abra o Clip Factory pelo menu Iniciar. Na tela **Projetos**, clique em **Atualizar pelo GitHub** para instalar a revisão mais recente da `main`. O app baixa e compila a revisão, atualiza o atalho e reabre após concluir. As versões ficam em pastas separadas para que uma falha de compilação preserve o aplicativo em uso. Os projetos continuam na pasta de dados do aplicativo.
+
+Mantenha a internet disponível e espaço livre para ferramentas de compilação e modelos. Aceite as solicitações do Windows durante a instalação. Se algum instalador pedir uma reinicialização ou se a conexão cair, execute o mesmo comando novamente. Para escolher outro destino, passe `-InstallDir 'C:\caminho\ClipFactory'` ao script.
 
 ## Desenvolver no Windows x64
 

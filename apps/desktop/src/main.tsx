@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { open } from '@tauri-apps/plugin-dialog'
 import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import Editor from './Editor'
+import SourceUpdate from './SourceUpdate'
 import { active, connect, Engine, size, time, type Clip, type Diagnostics, type Job, type Project, type Settings } from './api'
 import './style.css'
 
@@ -290,6 +291,7 @@ function Studio({ api }: { api: Engine }) {
         {job.result?.files?.map(file => <p className="export-result" key={file.path}><span className="path">{file.path} · {size(file.size)} · {time(file.duration_ms)}</span>
           <button onClick={() => void run(() => revealItemInDir(file.path))}>Abrir pasta</button></p>)}
       </section>}
+      <SourceUpdate api={api} busy={busy} visible={view === 'home'} />
       {view === 'home' && <>
         {projects.length === 0 && <section className="panel empty"><h2>Comece com um vídeo</h2><p>Importe um arquivo ou link para criar o primeiro projeto.</p><button className="primary" onClick={() => setView('import')}>Importar vídeo</button></section>}
         <div className="project-grid">{projects.map(item => <button className="project-card" key={item.id} onClick={() => showProject(item.id)}>
