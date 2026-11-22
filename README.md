@@ -55,7 +55,11 @@ Para quem usa o aplicativo, basta instalar o Clip Factory para Windows x64. O in
 
 Para acessar os ajustes avançados durante o desenvolvimento, defina `$env:CLIP_FACTORY_MODE = 'test'` antes de executar o script de desenvolvimento. O modo Teste começa com Whisper `base` em CPU e a revisão com Ollama `3B` é opcional. Remova a variável para voltar a Produção. O aplicativo empacotado inicia sempre em Produção.
 
-Use **Link de vídeo** para importar um vídeo gravado que você tem autorização para editar. O yt-dlp aceita links do YouTube, clipes e gravações da Twitch, posts do X/Twitter, Reels do Instagram e outros sites compatíveis. O importador baixa arquivos diretos e gravações em HLS ou DASH e usa o FFmpeg para juntar áudio e vídeo quando vêm separados. O limite é de 2 GB por importação. Lives, playlists e conteúdo com DRM não são aceitos.
+Use **Link de vídeo** para importar um vídeo gravado que você tem autorização para editar. O yt-dlp aceita links do YouTube, clipes e gravações da Twitch, posts do X/Twitter, Reels do Instagram e outros sites compatíveis. O importador baixa arquivos diretos e gravações em HLS ou DASH e usa o FFmpeg para juntar áudio e vídeo quando vêm separados. Transmissões em andamento, playlists e conteúdo com DRM são bloqueados.
+
+Em **Configurações → Limite de download por vídeo**, o padrão é **20 GB** (1 GB = 1 bilhão de bytes). Esse limite cobre os dados de mídia recebidos em todos os segmentos e faixas e também é verificado no arquivo final. A tela mostra o espaço livre na unidade onde o aplicativo guarda os projetos, quando disponível. Downloads com áudio e vídeo separados podem precisar de aproximadamente duas vezes o tamanho das faixas, além da reserva de segurança, enquanto o FFmpeg monta o arquivo final.
+
+Ao importar um **arquivo local**, o Clip Factory usa o original e inspeciona o formato com FFprobe. Arquivos locais podem ter qualquer tamanho aceito pelo disco e pelo formato.
 
 O instalador inclui o Node.js para o YouTube. Em desenvolvimento manual, use Node.js ou Deno no PATH. Se a plataforma exigir login, inicie o aplicativo com `CLIP_FACTORY_COOKIES` apontando para um arquivo local de cookies no formato Netscape, exportado da sua própria sessão. Trate esse arquivo como uma credencial.
 

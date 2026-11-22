@@ -4,6 +4,26 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+test('valida e salva o limite de download nas configurações', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Configurações' }).click()
+  const limit = page.getByLabel('Limite de download por vídeo (GB)')
+  const save = page.getByRole('button', { name: 'Salvar configurações' })
+  await expect(limit).toHaveValue('20')
+  await expect(page.getByText(/Espaço livre na unidade de download/)).toBeVisible()
+  await limit.fill('0')
+  await expect(save).toBeDisabled()
+  await limit.fill('32')
+  await save.click()
+  await expect(save).toBeEnabled()
+  await page.reload()
+  await page.getByRole('button', { name: 'Configurações' }).click()
+  await expect(limit).toHaveValue('32')
+  await limit.fill('20')
+  await save.click()
+  await expect(save).toBeEnabled()
+})
+
 test('importa, edita, gera prévia, reabre e exporta um corte real', async ({ page }, info) => {
   await page.route('**/*', route => new URL(route.request().url()).hostname === '127.0.0.1'
     ? route.continue()
@@ -17,9 +37,6 @@ test('importa, edita, gera prévia, reabre e exporta um corte real', async ({ pa
     ])
     await page.goto('/')
     await expect(page.getByRole('heading', { name: 'Seus projetos' })).toBeVisible()
-    if (process.env.CLIP_FACTORY_MODE !== 'test') {
-      await expect(page.getByRole('button', { name: 'Configurações' })).toHaveCount(0)
-    }
     await page.getByRole('main').getByRole('button', { name: 'Novo projeto' }).click()
     await page.getByLabel('Nome do projeto').fill(`Fluxo ${info.project.name}`)
     await page.getByLabel('Arquivo de vídeo').fill(video)

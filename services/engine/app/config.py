@@ -11,9 +11,13 @@ ORIGINS = {
     "http://127.0.0.1:1420", "http://localhost:1420",
     "http://tauri.localhost", "https://tauri.localhost", "tauri://localhost",
 }
+BYTES_PER_GB = 1_000_000_000
+DEFAULT_DOWNLOAD_LIMIT_GB = 20
+MAX_DOWNLOAD_LIMIT_GB = 2**53 - 1
 DEFAULTS = {
     "whisper_model": "base", "language": "auto", "use_gpu": False,
     "use_llm": False, "default_export_dir": "", "default_caption_style": "white",
+    "download_limit_gb": DEFAULT_DOWNLOAD_LIMIT_GB,
 }
 PRODUCTION_SETTINGS = {**DEFAULTS, "whisper_model": "medium", "use_gpu": True, "use_llm": True}
 PRODUCTION_ANALYSIS = {

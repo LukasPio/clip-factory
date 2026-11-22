@@ -112,7 +112,7 @@ class Task:
         self.check()
         self.update(phase=phase, message=message, progress=progress)
 
-    def command(self, args, *, cwd=None, timeout=None, on_line=None, code="FFMPEG_FAILED",
+    def command(self, args, *, cwd=None, timeout=None, on_line=None, on_poll=None, code="FFMPEG_FAILED",
                 message="O FFmpeg não conseguiu processar o vídeo. Consulte o diagnóstico."):
         self.check()
         options = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {"start_new_session": True}
@@ -129,6 +129,8 @@ class Task:
                 try:
                     while proc.poll() is None:
                         self.check()
+                        if on_poll:
+                            on_poll()
                         if timeout and time.monotonic() - start > timeout:
                             raise Problem(code, message)
                         if on_line:

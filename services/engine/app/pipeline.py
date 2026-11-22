@@ -8,7 +8,7 @@ from pathlib import Path
 from . import db, media
 from .config import DATA, MODELS, PROJECTS, Problem, safe_filename, worker
 from .dependencies import OLLAMA, ollama_server
-from .downloader import MAX_BYTES
+from .downloader import check_download_space
 from .editorial import candidates, normalize_segments, prepare_production_review, project_cues, rank_options
 
 
@@ -27,7 +27,7 @@ def worker_main(kind, args):
     try:
         if kind == "download":
             from .downloader import download
-            result = download(args[1], output.parent, lambda progress: report("Baixando vídeo", progress))
+            result = download(args[1], output.parent, lambda progress: report("Baixando vídeo", progress), int(args[2]))
         else:
             result = transcribe(*args[1:], report=report)
     except Problem as error:
@@ -102,7 +102,7 @@ def transcribe(audio, model_name, language, use_gpu, consent, duration, *, repor
             model = None
 
 
-def worker_result(task, kind, output, *args, timeout):
+def worker_result(task, kind, output, *args, timeout=None, on_poll=None):
     def progress(line):
         try:
             update = json.loads(line)
@@ -112,7 +112,7 @@ def worker_result(task, kind, output, *args, timeout):
             value = update.get("progress")
             task.update(message=update["message"], progress=None if value is None else min(1, max(0, value)))
 
-    task.command(worker(kind, output, *args), timeout=timeout, on_line=progress,
+    task.command(worker(kind, output, *args), timeout=timeout, on_line=progress, on_poll=on_poll,
                  code="WORKER_FAILED", message="O processamento excedeu o tempo ou falhou. Tente novamente.")
     result = json.loads(output.read_text(encoding="utf-8"))
     if result.get("error"):
@@ -128,32 +128,53 @@ def import_project(task, project):
         task.phase("inspecting", "Inspecionando fonte")
         path = media.local_source(project["source_uri"])
         metadata = media.probe(path)
-        title = None
+        import_thumbnail(task, path, metadata, folder)
+        save_import(task, project, path, metadata)
     else:
         task.phase("downloading", "Verificando link público")
-        # The downloaded tracks and the merged file can coexist during import.
-        media.disk(folder, 2 * MAX_BYTES + 100_000_000)
+        check_download_space(folder)
+        with db.connect() as conn:
+            limit_gb = db.settings(conn)["download_limit_gb"]
         with tempfile.TemporaryDirectory(dir=folder, prefix="download-") as scratch:
-            result = worker_result(task, "download", Path(scratch) / "result.json", project["source_uri"], timeout=900)
+            result = worker_result(
+                task, "download", Path(scratch) / "result.json", project["source_uri"], limit_gb,
+                on_poll=lambda: check_download_space(folder),
+            )
             path = folder / result["file"]
             downloaded = Path(scratch) / path.name
             metadata = media.probe(downloaded)
+            scratch_folder = downloaded.parent
+            import_thumbnail(task, downloaded, metadata, scratch_folder)
             task.check()
             downloaded.replace(path)
-            title = result["title"]
+            try:
+                thumbnail = scratch_folder / "source.jpg"
+                if thumbnail.is_file():
+                    thumbnail.replace(folder / thumbnail.name)
+                save_import(task, project, path, metadata, result["title"])
+            except Exception:
+                path.unlink(missing_ok=True)
+                (folder / "source.jpg").unlink(missing_ok=True)
+                raise
+    return {"metadata": metadata, "message": "Vídeo importado."}
+
+
+def import_thumbnail(task, path, metadata, folder):
     try:
         media.thumbnail(task, path, metadata, folder / "source.jpg")
     except Problem as error:
         if error.code == "CANCELLED":
             raise
+
+
+def save_import(task, project, path, metadata, title=None):
     task.check()
     with db.connect(write=True) as conn:
         conn.execute(
             "UPDATE projects SET source_path=?,metadata=?,title=?,updated_at=? WHERE id=?",
             (str(path), json.dumps(metadata), title if title and project["title"] == "Vídeo por link" else project["title"],
-             db.now(), identifier),
+             db.now(), project["id"]),
         )
-    return {"metadata": metadata, "message": "Vídeo importado."}
 
 
 def clip_thumbnail(task, project, source, item):

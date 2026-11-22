@@ -1,14 +1,16 @@
 import json
 import os
 import shutil
+import struct
 import subprocess
+import sys
 import time
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
-from app import api, db, diagnostics, jobs, main, pipeline
+from app import api, db, diagnostics, downloader, jobs, main, pipeline
 
 AUTH = {"Authorization": "Bearer session"}
 
@@ -51,6 +53,73 @@ def fixture_video(path, audio=True, seconds=5):
         "ffmpeg", "-v", "error", *inputs, "-t", str(seconds), "-pix_fmt", "yuv420p", "-c:v", "libx264", str(path)
     ], check=True)
     return path
+
+
+def test_large_local_import_keeps_sparse_original(client, engine_path, tmp_path):
+    source = fixture_video(tmp_path / "gravação esparsa.mp4", seconds=1)
+    if os.name == "nt":
+        sparse = subprocess.run(["fsutil", "sparse", "setflag", str(source)], capture_output=True)
+        if sparse.returncode:
+            pytest.skip("A unidade de testes não oferece arquivos esparsos no Windows")
+    original_size = source.stat().st_size
+    large_size = 21_000_000_000
+    with source.open("ab") as video:
+        video.write(struct.pack(">I4sQ", 1, b"free", large_size - original_size))
+        video.truncate(large_size)
+
+    project = client.post("/projects", json={"source_kind": "local", "source_uri": str(source)}).json()
+    job = wait_job(client, project["job_id"])
+    assert job["status"] == "done", job
+    assert job["result"]["metadata"]["size"] == large_size
+    saved = client.get(f"/projects/{project['id']}").json()
+    assert Path(saved["source_path"]) == source.resolve()
+    assert sorted(path.name for path in (engine_path / "projects" / project["id"]).iterdir()) == ["source.jpg"]
+
+
+def test_download_settings_persist_across_engine_restart(engine_path, monkeypatch):
+    with TestClient(main.create_app("session", "testserver"), headers=AUTH) as first:
+        assert first.patch("/settings", json={"whisper_model": "small"}).status_code == 200
+    monkeypatch.delenv("CLIP_FACTORY_MODE")
+    with TestClient(main.create_app("session", "testserver"), headers=AUTH) as production:
+        settings = production.get("/settings").json()
+        assert settings["download_limit_gb"] == 20 and settings["download_disk_free"] > 0
+        for invalid in (0, -1, 1.5, True, "6"):
+            assert production.patch("/settings", json={"download_limit_gb": invalid}).status_code == 422
+        assert production.patch("/settings", json={"whisper_model": "small"}).status_code == 403
+        updated = production.patch("/settings", json={"download_limit_gb": 32}).json()
+        assert updated["download_limit_gb"] == 32 and updated["mode"] == "production"
+    monkeypatch.setenv("CLIP_FACTORY_MODE", "test")
+    with TestClient(main.create_app("session", "testserver"), headers=AUTH) as restarted:
+        settings = restarted.get("/settings").json()
+        assert settings["download_limit_gb"] == 32 and settings["whisper_model"] == "small"
+
+
+@pytest.mark.parametrize("stop", ["cancel", "disk"])
+def test_interrupted_download_removes_scratch(client, engine_path, monkeypatch, stop):
+    def fake_worker(kind, output, url, limit_gb):
+        assert kind == "download" and limit_gb == 32
+        return [sys.executable, "-c",
+                "import pathlib, sys, time; pathlib.Path(sys.argv[1]).touch(); time.sleep(120)",
+                str(output.parent / "source.mp4.part")]
+
+    monkeypatch.setattr(pipeline, "worker", fake_worker)
+    monkeypatch.setattr(downloader, "free_space", lambda path: 50_000_000_000)
+    assert client.patch("/settings", json={"download_limit_gb": 32}).status_code == 200
+    project = client.post("/projects", json={
+        "source_kind": "url", "source_uri": "https://example.com/video", "authorized": True,
+    }).json()
+    folder = engine_path / "projects" / project["id"]
+    deadline = time.monotonic() + 10
+    while not list(folder.glob("download-*/source.mp4.part")):
+        assert time.monotonic() < deadline, client.get(f"/jobs/{project['job_id']}").json()
+        time.sleep(.05)
+    if stop == "cancel":
+        assert client.post(f"/jobs/{project['job_id']}/cancel").is_success
+    else:
+        monkeypatch.setattr(downloader, "free_space", lambda path: downloader.DISK_RESERVE - 1)
+    job = wait_job(client, project["job_id"])
+    assert job["error_code"] == ("CANCELLED" if stop == "cancel" else "DISK_FULL"), job
+    assert not list(folder.iterdir())
 
 
 def test_existing_clips_switch_to_full_frame_without_losing_edits(engine_path):

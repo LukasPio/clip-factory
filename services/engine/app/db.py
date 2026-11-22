@@ -129,11 +129,17 @@ def get(db, table, identifier):
     return decode(row)
 
 
-def settings(db):
-    if production_mode():
-        return {**PRODUCTION_SETTINGS, "mode": "production"}
+def saved_settings(db):
     row = db.execute("SELECT value FROM settings WHERE id=1").fetchone()
-    return {**DEFAULTS, **(json.loads(row["value"]) if row else {}), "mode": "test"}
+    return json.loads(row["value"]) if row else {}
+
+
+def settings(db):
+    saved = saved_settings(db)
+    if production_mode():
+        return {**PRODUCTION_SETTINGS, "download_limit_gb": saved.get("download_limit_gb", DEFAULTS["download_limit_gb"]),
+                "mode": "production"}
+    return {**DEFAULTS, **saved, "mode": "test"}
 
 
 def project_segments(db, project_id):

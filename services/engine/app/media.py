@@ -16,12 +16,15 @@ INPUT_OPTIONS = ["-protocol_whitelist", "file", "-format_whitelist", "mov,mp4,m4
 PRESETS = {"preview": (540, 960), "720p": (720, 1280), "1080p": (1080, 1920)}
 
 
-def capture(args, timeout=15):
-    return subprocess.run(
+def capture(args, timeout=15, *, reject_errors=False):
+    result = subprocess.run(
         args, capture_output=True, encoding="utf-8", errors="replace", timeout=timeout,
         stdin=subprocess.DEVNULL, check=True,
         creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-    ).stdout
+    )
+    if reject_errors and result.stderr:
+        raise ValueError("FFprobe reported a media error")
+    return result.stdout
 
 
 def local_source(value):
@@ -44,7 +47,7 @@ def probe(path):
         raw = json.loads(capture([
             binary("ffprobe"), "-v", "error", *INPUT_OPTIONS,
             "-show_format", "-show_streams", "-of", "json", str(path),
-        ]))
+        ], reject_errors=True))
         streams, fmt = raw["streams"], raw["format"]
         videos = [s for s in streams if s["codec_type"] == "video" and not s.get("disposition", {}).get("attached_pic")]
         video = videos[0]
@@ -72,6 +75,13 @@ def probe(path):
         }
     except (subprocess.SubprocessError, ValueError, OverflowError, KeyError, IndexError, OSError, ZeroDivisionError) as error:
         raise Problem("UNSUPPORTED_MEDIA", "O FFprobe não encontrou um vídeo válido com duração conhecida.") from error
+
+
+def free_space(path):
+    try:
+        return shutil.disk_usage(path).free
+    except OSError:
+        return None
 
 
 def disk(path, required):

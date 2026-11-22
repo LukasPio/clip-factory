@@ -1,4 +1,5 @@
 import ipaddress
+import math
 import os
 import re
 import select
@@ -7,6 +8,7 @@ import socket
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Lock, Thread
+from time import monotonic
 from urllib.parse import urlsplit
 
 from yt_dlp import YoutubeDL
@@ -16,11 +18,52 @@ from yt_dlp.downloader.hls import HlsFD
 from yt_dlp.downloader.http import HttpFD
 from yt_dlp.dependencies import Cryptodome
 from yt_dlp.networking import Request
+from yt_dlp.postprocessor.ffmpeg import FFmpegPostProcessor
 from yt_dlp.utils import DownloadError
 
-from .config import Problem, binary
+from .config import BYTES_PER_GB, DEFAULT_DOWNLOAD_LIMIT_GB, Problem, binary
+from .media import EXTENSIONS, free_space
 
-MAX_BYTES = 2_000_000_000
+DISK_RESERVE = BYTES_PER_GB
+WORKSPACE_ALLOWANCE = 100_000_000
+# Native yt-dlp buffers one whole fragment for decryption/assembly.
+FRAGMENT_LIMIT = 128 * 1024**2
+MANIFEST_LIMIT = 16 * 1024**2
+
+
+def check_download_space(folder, additional=0):
+    required = DISK_RESERVE + additional
+    free = free_space(folder)
+    if free is None:
+        raise Problem("DISK_UNAVAILABLE", "Não foi possível consultar o espaço livre na unidade de download.")
+    if free < required:
+        raise Problem(
+            "DISK_FULL",
+            f"Espaço insuficiente na unidade de download. Livre: {free / BYTES_PER_GB:.2f} GB. "
+            f"Necessário nesta etapa: {required / BYTES_PER_GB:.2f} GB, incluindo a reserva de segurança.",
+        )
+
+
+def estimated_workspace(info, limit):
+    tracks = info.get("requested_formats") or [info]
+    sizes = []
+    for track in tracks:
+        size = track.get("filesize") or track.get("filesize_approx")
+        bitrate, duration = track.get("tbr"), info.get("duration")
+        if not size and bitrate and duration:
+            size = bitrate * duration * 125  # kbps × seconds ÷ 8
+        sizes.append(size if size and math.isfinite(size) and size > 0 else WORKSPACE_ALLOWANCE)
+    payload = min(math.ceil(sum(sizes)), limit)
+    # Fragment assembly and FFmpeg remux/merge can keep input and output on disk.
+    staged = len(tracks) > 1 or any(
+        track.get("protocol") in {"m3u8_native", "http_dash_segments"} or track.get("stretched_ratio") not in (None, 1)
+        for track in tracks
+    )
+    return payload * (2 if staged else 1) + WORKSPACE_ALLOWANCE
+
+
+def too_large(limit_gb):
+    return Problem("SOURCE_TOO_LARGE", f"O vídeo excedeu o limite de download de {limit_gb} GB.")
 
 
 def authority(value):
@@ -54,7 +97,9 @@ def public_addresses(name):
 class GuardedProxy(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self):
+    def __init__(self, limit):
+        # Encrypted tunnel traffic also includes extraction, headers and TLS framing.
+        self.limit = limit + max(WORKSPACE_ALLOWANCE, limit // 20)
         self.downloaded = 0
         self.counter = Lock()
         super().__init__(("127.0.0.1", 0), Tunnel)
@@ -62,7 +107,7 @@ class GuardedProxy(ThreadingHTTPServer):
     def count(self, size):
         with self.counter:
             self.downloaded += size
-            return self.downloaded <= MAX_BYTES
+            return self.downloaded <= self.limit
 
 
 class Tunnel(BaseHTTPRequestHandler):
@@ -139,7 +184,10 @@ class GuardedYoutubeDL(YoutubeDL):
             if manifest is None:
                 request = Request(info["url"], headers=info.get("http_headers"))
                 with self.urlopen(request) as response:
-                    manifest = response.read().decode("utf-8", "replace")
+                    manifest = response.read(MANIFEST_LIMIT + 1)
+                    if len(manifest) > MANIFEST_LIMIT:
+                        raise Problem("UNSUPPORTED_SOURCE", "A lista de segmentos HLS é grande demais.")
+                    manifest = manifest.decode("utf-8", "replace")
                     info["url"] = response.url
             if "#EXT-X-ENDLIST" not in manifest:
                 raise Problem("INVALID_SOURCE", "Apenas vídeos gravados e disponíveis.")
@@ -149,6 +197,71 @@ class GuardedYoutubeDL(YoutubeDL):
                 raise Problem("UNSUPPORTED_SOURCE", "Vídeo protegido por DRM ou HLS incompatível.")
             info["hls_media_playlist_data"] = manifest
         return super().dl(name, info, subtitle=subtitle, test=test)
+
+
+class BudgetedYoutubeDL(GuardedYoutubeDL):
+    def __init__(self, options, folder, limit_gb):
+        self.folder = folder
+        self.limit_gb = limit_gb
+        self.limit = limit_gb * BYTES_PER_GB
+        self.payload = 0
+        self.reading_media = False
+        self.fragmented = False
+        self.next_disk_check = 0
+        super().__init__(options)
+
+    def process_info(self, info):
+        check_download_space(self.folder, estimated_workspace(info, self.limit))
+        return super().process_info(info)
+
+    def run_pp(self, pp, info):
+        if isinstance(pp, FFmpegPostProcessor):
+            inputs = info.get("__files_to_merge") if pp.PP_NAME == "Merger" else None
+            size = sum(Path(path).stat().st_size for path in inputs or [info["filepath"]])
+            # A second copy may coexist until FFmpeg finishes and yt-dlp renames it.
+            check_download_space(self.folder, size + max(WORKSPACE_ALLOWANCE, size // 20))
+        return super().run_pp(pp, info)
+
+    def dl(self, name, info, subtitle=False, test=False):
+        self.reading_media = True
+        self.fragmented = get_suitable_downloader(info, self.params) in {HlsFD, DashSegmentsFD}
+        try:
+            return super().dl(name, info, subtitle=subtitle, test=test)
+        finally:
+            self.reading_media = False
+            self.fragmented = False
+
+    def urlopen(self, request):
+        response = super().urlopen(request)
+        if self.reading_media:
+            read = response.read
+            response_bytes = 0
+
+            def counted_read(amount=None):
+                nonlocal response_bytes
+                available = self.limit - self.payload
+                if self.fragmented:
+                    available = min(available, FRAGMENT_LIMIT - response_bytes)
+                size = available + 1 if amount is None or amount < 0 else min(amount, available + 1)
+                try:
+                    block = read(size)
+                    response_bytes += len(block)
+                    self.payload += len(block)
+                    if self.payload > self.limit:
+                        raise too_large(self.limit_gb)
+                    if self.fragmented and response_bytes > FRAGMENT_LIMIT:
+                        raise Problem("UNSUPPORTED_SOURCE", "Um segmento do vídeo é grande demais para importação segura.")
+                    now = monotonic()
+                    if now >= self.next_disk_check:
+                        check_download_space(self.folder, len(block))
+                        self.next_disk_check = now + .2
+                    return block
+                except BaseException:
+                    response.close()
+                    raise
+
+            response.read = counted_read
+        return response
 
 
 def source_error(error):
@@ -164,17 +277,24 @@ def source_error(error):
     return Problem("SOURCE_UNAVAILABLE", "Não foi possível baixar este vídeo. Confira se o link está disponível e se o yt-dlp está atualizado.")
 
 
-def download(url, folder, report):
+def download(url, folder, report, limit_gb=DEFAULT_DOWNLOAD_LIMIT_GB):
+    check_download_space(folder, WORKSPACE_ALLOWANCE)
     public_addresses(authority(url))
     ffmpeg = binary("ffmpeg")
     bundled_node = os.environ.get("CLIP_FACTORY_NODE")
-    with GuardedProxy() as proxy:
+    limit = limit_gb * BYTES_PER_GB
+    with GuardedProxy(limit) as proxy:
         thread = Thread(target=proxy.serve_forever, daemon=True)
         thread.start()
         try:
+            next_report = 0
+
             def progress(data):
-                if proxy.downloaded > MAX_BYTES:
-                    raise Problem("SOURCE_TOO_LARGE", "O vídeo excedeu o limite de 2 GB.")
+                nonlocal next_report
+                now = monotonic()
+                if now < next_report and data.get("status") != "finished":
+                    return
+                next_report = now + .5
                 total = data.get("total_bytes") or data.get("total_bytes_estimate")
                 report(data.get("downloaded_bytes", 0) / total if total else None)
 
@@ -195,7 +315,7 @@ def download(url, folder, report):
                 "concurrent_fragment_downloads": 1,
                 "js_runtimes": {"node": {"path": bundled_node}} if bundled_node else {"node": {}, "deno": {}},
                 "outtmpl": str(folder / "source.%(ext)s"),
-                "fixup": "detect_or_warn", "max_filesize": MAX_BYTES, "socket_timeout": 20,
+                "fixup": "detect_or_warn", "socket_timeout": 20,
                 "retries": 3, "progress_hooks": [progress], "cachedir": False,
                 "noprogress": True, "nopart": False, "enable_file_urls": False,
             }
@@ -207,7 +327,7 @@ def download(url, folder, report):
                 jar = folder / "cookies.txt"
                 shutil.copyfile(cookies, jar)
                 options["cookiefile"] = str(jar)
-            with GuardedYoutubeDL(options) as client:
+            with BudgetedYoutubeDL(options, folder, limit_gb) as client:
                 info = client.extract_info(url, download=False, process=False)
                 if not info:
                     raise Problem("INVALID_SOURCE", "Informe o link de um único vídeo gravado.")
@@ -215,14 +335,16 @@ def download(url, folder, report):
                 if not info:
                     raise Problem("SOURCE_UNAVAILABLE", "A plataforma não forneceu um vídeo compatível.")
                 output = folder / f"source.{info.get('ext')}"
-                if proxy.downloaded > MAX_BYTES or (output.is_file() and output.stat().st_size > MAX_BYTES):
-                    raise Problem("SOURCE_TOO_LARGE", "O vídeo excedeu o limite de 2 GB.")
-                if output.suffix not in {".mp4", ".webm", ".mkv", ".mov"} or not output.is_file():
-                    raise Problem("SOURCE_UNAVAILABLE", "A plataforma bloqueou o acesso ou o vídeo excedeu o limite de download.")
+                if proxy.downloaded > proxy.limit or (output.is_file() and output.stat().st_size > limit):
+                    raise too_large(limit_gb)
+                check_download_space(folder)
+                if output.suffix not in EXTENSIONS or not output.is_file():
+                    raise Problem("SOURCE_UNAVAILABLE", "A plataforma não forneceu um vídeo compatível.")
                 return {"file": output.name, "title": (info.get("title") or "")[:180]}
         except DownloadError as error:
-            if proxy.downloaded > MAX_BYTES:
-                raise Problem("SOURCE_TOO_LARGE", "O vídeo excedeu o limite de 2 GB.") from error
+            if proxy.downloaded > proxy.limit:
+                raise too_large(limit_gb) from error
+            check_download_space(folder)
             raise source_error(error) from error
         finally:
             proxy.shutdown()

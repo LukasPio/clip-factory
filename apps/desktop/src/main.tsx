@@ -98,10 +98,35 @@ function Configuration({ api, settings, setSettings, disabled, run }: {
   run: (task: () => Promise<unknown>) => void
 }) {
   const [draft, setDraft] = useState(settings)
+  const [downloadLimit, setDownloadLimit] = useState(String(settings.download_limit_gb))
+  const [diskFree, setDiskFree] = useState(settings.download_disk_free)
   const [report, setReport] = useState<Diagnostics | null>(null)
   const [loading, setLoading] = useState(false)
   const update = (value: Partial<Settings>) => setDraft(current => ({ ...current, ...value }))
-  useEffect(() => setDraft(settings), [settings])
+  useEffect(() => {
+    setDraft(settings)
+    setDownloadLimit(String(settings.download_limit_gb))
+    setDiskFree(settings.download_disk_free)
+  }, [settings])
+  useEffect(() => {
+    let mounted = true
+    void api.request<Settings>('/settings').then(value => {
+      if (mounted) setDiskFree(value.download_disk_free)
+    }).catch(() => {
+      if (mounted) setDiskFree(null)
+    })
+    return () => { mounted = false }
+  }, [api])
+  const limit = Number(downloadLimit)
+  const validLimit = Number.isSafeInteger(limit) && limit >= 1
+  const testMode = settings.mode === 'test'
+  const save = () => run(async () => setSettings(await api.request('/settings', 'PATCH', {
+    download_limit_gb: limit,
+    ...(testMode ? {
+      use_gpu: draft.use_gpu, use_llm: draft.use_llm, whisper_model: draft.whisper_model, language: draft.language,
+      default_caption_style: draft.default_caption_style, default_export_dir: draft.default_export_dir,
+    } : {}),
+  })))
   const scan = () => run(async () => {
     setLoading(true)
     try { setReport(await api.request('/diagnostics')) } finally { setLoading(false) }
@@ -110,6 +135,11 @@ function Configuration({ api, settings, setSettings, disabled, run }: {
     <section className="panel">
       <h2>Configurações</h2>
       <fieldset disabled={disabled} className="form">
+        <label>Limite de download por vídeo (GB)<input type="number" min={1} step={1} required
+          value={downloadLimit} aria-invalid={!validLimit} onChange={e => setDownloadLimit(e.target.value)} /></label>
+        {!validLimit && <p className="notice">Informe um número inteiro de GB a partir de 1.</p>}
+        {diskFree != null && <p className="notice">Espaço livre na unidade de download: {size(diskFree)}</p>}
+        {testMode && <>
         <label>Processamento no modo Teste<select value={draft.use_gpu ? 'gpu' : 'cpu'} onChange={e => update({ use_gpu: e.target.value === 'gpu' })}>
           <option value="cpu">CPU / int8</option><option value="gpu">GPU · CUDA / NVENC</option></select></label>
         <label>Modelo de voz<select value={draft.whisper_model} onChange={e => update({ whisper_model: e.target.value as Settings['whisper_model'] })}>
@@ -124,10 +154,11 @@ function Configuration({ api, settings, setSettings, disabled, run }: {
           const path = await open({ directory: true }); if (typeof path === 'string') update({ default_export_dir: path })
         })}>Pasta de exportação…</button>
         {draft.default_export_dir && <p className="path">{draft.default_export_dir}</p>}
-        <button className="primary" onClick={() => run(async () => setSettings(await api.request('/settings', 'PATCH', draft)))}>Salvar configurações</button>
+        </>}
+        <button className="primary" disabled={!validLimit} onClick={save}>Salvar configurações</button>
       </fieldset>
     </section>
-    <section className="panel">
+    {testMode && <section className="panel">
       <div className="section-head"><h2>Diagnóstico</h2><button disabled={disabled || loading} onClick={scan}>{loading ? 'Verificando…' : 'Executar diagnóstico'}</button></div>
       {report && <>
         <p className="notice">{report.recommendation}</p>
@@ -144,7 +175,7 @@ function Configuration({ api, settings, setSettings, disabled, run }: {
           <dt>Disco livre</dt><dd>{size(report.disk_free)}</dd>
         </dl>
       </>}
-    </section>
+    </section>}
   </div>
 }
 
@@ -274,8 +305,8 @@ function Studio({ api }: { api: Engine }) {
       <nav aria-label="Menu principal">
         <button disabled={pending} aria-current={view === 'home' ? 'page' : undefined} onClick={() => { setSelected(null); setView('home'); setExporting(null) }}>Projetos</button>
         <button disabled={pending} aria-current={view === 'import' ? 'page' : undefined} onClick={() => setView('import')}>Novo projeto</button>
-        {settings?.mode === 'test' && <button disabled={pending} aria-current={view === 'settings' ? 'page' : undefined}
-          onClick={() => setView('settings')}>Configurações</button>}
+        <button disabled={pending || !settings} aria-current={view === 'settings' ? 'page' : undefined}
+          onClick={() => setView('settings')}>Configurações</button>
       </nav>
       <div className="sidebar-foot"><span /> Motor local conectado</div>
     </aside>
@@ -299,7 +330,7 @@ function Studio({ api }: { api: Engine }) {
         </button>)}</div>
       </>}
       {view === 'import' && <Import api={api} busy={busy} run={run} done={async item => { showProject(item.id); await track(item.job_id, item.id) }} />}
-      {view === 'settings' && settings?.mode === 'test' && <Configuration api={api} settings={settings} setSettings={setSettings} disabled={busy} run={run} />}
+      {view === 'settings' && settings && <Configuration api={api} settings={settings} setSettings={setSettings} disabled={busy} run={run} />}
       {view === 'project' && project && <>
         <div className="project-actions">
           <button disabled={busy} onClick={() => void run(async () => {

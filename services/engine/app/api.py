@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, model_validator
 
 from . import db, diagnostics, media, pipeline
-from .config import PROJECTS, PRODUCTION_ANALYSIS, Problem, production_mode
+from .config import MAX_DOWNLOAD_LIMIT_GB, PROJECTS, PRODUCTION_ANALYSIS, Problem, production_mode
 from .downloader import authority
 
 router = APIRouter()
@@ -86,6 +86,7 @@ class Export(BaseModel):
 
 
 class Settings(BaseModel):
+    download_limit_gb: int | None = Field(None, strict=True, ge=1, le=MAX_DOWNLOAD_LIMIT_GB)
     whisper_model: Literal["tiny", "base", "small", "medium"] | None = None
     language: Literal["auto", "pt"] | None = None
     use_gpu: bool | None = None
@@ -370,21 +371,20 @@ def job_cancel(identifier: UUID, request: Request):
 @router.get("/settings")
 def get_settings():
     with db.connect() as conn:
-        return db.settings(conn)
+        return {**db.settings(conn), "download_disk_free": media.free_space(PROJECTS)}
 
 
 @router.patch("/settings")
 def set_settings(data: Settings, request: Request):
-    if production_mode():
-        raise Problem("SETTINGS_LOCKED", "O modo Produção já está configurado.", 403)
     fields = data.model_dump(exclude_none=True)
+    if production_mode() and fields.keys() != {"download_limit_gb"}:
+        raise Problem("SETTINGS_LOCKED", "No modo Produção, apenas o limite de download pode ser alterado.", 403)
     if fields.get("default_export_dir"):
         fields["default_export_dir"] = str(output_directory(fields["default_export_dir"]))
     with idle(request), db.connect(write=True) as conn:
-        result = {key: value for key, value in db.settings(conn).items() if key != "mode"}
-        result.update(fields)
-        conn.execute("INSERT OR REPLACE INTO settings VALUES(1,?)", (json.dumps(result),))
-    return {**result, "mode": "test"}
+        saved = {**db.saved_settings(conn), **fields}
+        conn.execute("INSERT OR REPLACE INTO settings VALUES(1,?)", (json.dumps(saved),))
+        return {**db.settings(conn), "download_disk_free": media.free_space(PROJECTS)}
 
 
 Media = Literal["source", "thumbnail", "clip-thumbnail", "preview"]

@@ -18,6 +18,7 @@ export type Job = {
 }
 export type Settings = {
   mode: 'production' | 'test';
+  download_limit_gb: number; download_disk_free: number | null;
   whisper_model: 'tiny' | 'base' | 'small' | 'medium'; language: 'auto' | 'pt'; use_gpu: boolean; use_llm: boolean;
   default_export_dir: string; default_caption_style: 'white' | 'yellow'
 }
